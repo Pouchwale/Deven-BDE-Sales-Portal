@@ -1,0 +1,516 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import { Eye, EyeOff, KeyRound, Pencil, ShieldAlert } from "lucide-react";
+
+import { ActiveBadge, RoleBadge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
+import { InlineError } from "@/components/ui/Feedback";
+import { Field, Input, Select } from "@/components/ui/Form";
+import { Modal } from "@/components/ui/Modal";
+import { ApiError, api, errorMessage } from "@/lib/api";
+import { ERROR_HINTS, roleLabel } from "@/lib/roles";
+import { useToast } from "@/lib/toast";
+import type { User, UserDetail } from "@/types/api";
+
+/* -------------------------------------------------------- set password */
+/**
+ * Set somebody's password.
+ *
+ * WHY NOTHING HERE EVER SHOWS AN EXISTING PASSWORD. They are stored as
+ * one-way bcrypt hashes: the plaintext is not kept, so no screen and no
+ * endpoint can produce it. Making it viewable would mean storing it
+ * reversibly, which turns one database leak into every employee's password.
+ *
+ * The new one is generated IN THE BROWSER when you ask for one, so the value
+ * an administrator hands over never has to travel back from the server.
+ */
+export function ResetPasswordDialog({
+  open,
+  onClose,
+  onDone,
+  user,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+  user: UserDetail | null;
+}) {
+  const toast = useToast();
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [mustChange, setMustChange] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const tooShort = password.length > 0 && password.length < 8;
+  const mismatch = confirm.length > 0 && confirm !== password;
+  const ready = password.length >= 8 && confirm === password;
+
+  function generate() {
+    // No 0/O/1/l/I: these get read aloud and typed by somebody else.
+    const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const bytes = new Uint32Array(16);
+    crypto.getRandomValues(bytes);
+    const made = Array.from(bytes, (n) => alphabet[n % alphabet.length]).join("");
+    setPassword(made);
+    setConfirm(made);
+    setCopied(false);
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(password);
+      setCopied(true);
+    } catch {
+      toast.info("Select the password and copy it manually.");
+    }
+  }
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!user || !ready) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await api.users.setPassword(user.id, password, mustChange);
+      toast.success("Password set", result.message);
+      onDone();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title={`Set a password for ${user?.name ?? ""}`}
+      description="Their current sessions end immediately. Copy it before you close this - it cannot be shown again."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="submit" form="reset-form" loading={saving} disabled={!ready}>
+            Set password
+          </Button>
+        </>
+      }
+    >
+      <form id="reset-form" onSubmit={submit} className="space-y-4" noValidate>
+        <Field
+          label="New password"
+          htmlFor="new-password"
+          required
+          hint={tooShort ? "At least 8 characters." : undefined}
+        >
+          <div className="flex items-stretch gap-2">
+            <Input
+              id="new-password"
+              type="text"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setCopied(false);
+              }}
+            />
+            <Button type="button" variant="secondary" onClick={generate}>
+              Generate
+            </Button>
+            {password ? (
+              <Button type="button" variant="secondary" onClick={copy}>
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            ) : null}
+          </div>
+        </Field>
+
+        <Field
+          label="Confirm password"
+          htmlFor="confirm-password"
+          required
+          hint={mismatch ? "The two passwords do not match." : undefined}
+        >
+          <Input
+            id="confirm-password"
+            type="text"
+            required
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+          />
+        </Field>
+
+        <label className="flex items-start gap-2.5 text-[13px] text-muted">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 accent-[var(--brand-600)]"
+            checked={mustChange}
+            onChange={(event) => setMustChange(event.target.checked)}
+          />
+          <span>
+            Make them choose their own at next sign-in
+            <span className="mt-0.5 block text-[12px] text-subtle">
+              Recommended. A password two people know is not a password.
+            </span>
+          </span>
+        </label>
+
+        <p className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-soft px-3 py-2 text-[12.5px] leading-relaxed text-warning">
+          <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          <span>
+            The portal stores passwords as one-way hashes, so it can never show you
+            an existing one - not here, and not anywhere else.
+          </span>
+        </p>
+
+        {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
+      </form>
+    </Modal>
+  );
+}
+
+/* --------------------------------------------------------- deactivate */
+export function DeactivateDialog({
+  open,
+  onClose,
+  onDone,
+  user,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+  user: UserDetail | null;
+}) {
+  const toast = useToast();
+  const [replacement, setReplacement] = useState("");
+  const [candidates, setCandidates] = useState<User[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<ApiError | Error | null>(null);
+
+  const needsReparenting = (user?.direct_report_count ?? 0) > 0;
+
+  useEffect(() => {
+    if (!open || !needsReparenting) return;
+    const controller = new AbortController();
+    api.users
+      .actionable(controller.signal)
+      .then((people) => setCandidates(people.filter((person) => person.id !== user?.id)))
+      .catch(() => {
+        /* the select simply stays empty; the API still enforces the rule */
+      });
+    return () => controller.abort();
+  }, [open, needsReparenting, user?.id]);
+
+  async function submit() {
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.users.deactivate(user.id, replacement || null);
+      toast.success("Deactivated", `${user.name} can no longer sign in.`);
+      onDone();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const code = error instanceof ApiError ? error.code : null;
+  const reports =
+    error instanceof ApiError && Array.isArray(error.details.reports)
+      ? (error.details.reports as { id: string; name: string }[])
+      : [];
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="md"
+      title={`Deactivate ${user?.name ?? ""}?`}
+      description="Nothing is deleted. Their leads, references and history stay attributed to them."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={submit}
+            loading={saving}
+            disabled={needsReparenting && !replacement}
+          >
+            Deactivate
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <ul className="space-y-1.5 text-[13px] text-muted">
+          <li>· They can no longer sign in.</li>
+          <li>· They disappear from every assignee dropdown.</li>
+          <li>· Historical attribution is preserved everywhere.</li>
+        </ul>
+
+        {needsReparenting ? (
+          <Field
+            label="Move their reports to"
+            htmlFor="replacement"
+            required
+            hint={`${user?.name} has ${user?.direct_report_count} direct report(s). They need a new manager first.`}
+          >
+            <Select
+              id="replacement"
+              required
+              value={replacement}
+              onChange={(event) => setReplacement(event.target.value)}
+            >
+              <option value="">Choose a manager…</option>
+              {candidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.name} · {roleLabel(candidate.role)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+
+        {error ? (
+          <InlineError>
+            {code && ERROR_HINTS[code] ? `${ERROR_HINTS[code]} ` : ""}
+            {errorMessage(error)}
+            {reports.length > 0 ? ` (${reports.map((r) => r.name).join(", ")})` : ""}
+          </InlineError>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+/* ---------------------------------------------------- permanent delete */
+/**
+ * Erase an account outright. Super Admin only, and refused by the server the
+ * moment the person has any history.
+ *
+ * Deactivation is the normal path and this dialog says so, because the two
+ * are easy to confuse and only one of them is reversible. The check lives on
+ * the server - this dialog just reports what it says, so the rule cannot be
+ * one thing here and another in the API.
+ */
+export function DeleteUserDialog({
+  open,
+  onClose,
+  onDone,
+  onDeactivateInstead,
+  user,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+  onDeactivateInstead: () => void;
+  user: UserDetail | null;
+}) {
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<ApiError | Error | null>(null);
+
+  const blockers =
+    error instanceof ApiError
+      ? ((error.details?.blockers as { table: string; column: string; rows: number }[]) ??
+        [])
+      : [];
+
+  async function submit() {
+    if (!user) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.users.deletePermanently(user.id);
+      toast.success("Account deleted", `${user.name} is gone for good.`);
+      onDone();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="sm"
+      title={`Permanently delete ${user?.name ?? ""}?`}
+      description="This cannot be undone."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          {blockers.length > 0 ? (
+            <Button
+              onClick={() => {
+                onClose();
+                onDeactivateInstead();
+              }}
+            >
+              Deactivate instead
+            </Button>
+          ) : (
+            <Button variant="danger" onClick={submit} loading={saving}>
+              Delete for good
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-[13px] leading-relaxed text-muted">
+          The account and its sign-in are removed entirely. Use this only for an
+          account created by mistake, or somebody who left before doing any work.
+        </p>
+        <p className="text-[13px] leading-relaxed text-muted">
+          If they have worked on anything,{" "}
+          <span className="font-medium text-content">deactivate</span> them instead:
+          it hides them everywhere while keeping their name against what they did.
+        </p>
+
+        {blockers.length > 0 ? (
+          <div className="rounded-lg border border-warning/25 bg-warning-soft px-3 py-2.5">
+            <p className="text-[12.5px] font-semibold text-warning">
+              Refused — this account has history
+            </p>
+            <ul className="mt-1.5 space-y-0.5">
+              {blockers.map((row) => (
+                <li key={`${row.table}.${row.column}`} className="text-[12px] text-muted">
+                  {row.rows} in <code className="font-mono">{row.table}</code>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : error ? (
+          <InlineError>{errorMessage(error)}</InlineError>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+
+/* ------------------------------------------------------------ detail panel */
+/**
+ * One person's account, opened by clicking their name.
+ *
+ * Editing used to live only behind the row's three-dot menu, which is where
+ * actions go to be undiscovered. This is the obvious path - click the person,
+ * read the account, act on it - and it deliberately does not restate the Team
+ * page: only what an administrator manages here.
+ */
+export function UserDetailPanel({
+  user,
+  onClose,
+  onEdit,
+  onSetPassword,
+  onDeactivate,
+  onReactivate,
+}: {
+  user: UserDetail | null;
+  onClose: () => void;
+  onEdit: () => void;
+  onSetPassword: () => void;
+  onDeactivate: () => void;
+  onReactivate: () => void;
+}) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <Modal
+      open={user !== null}
+      onClose={onClose}
+      size="sm"
+      title={user?.name ?? ""}
+      description="Account details. Changing an email or password never changes what this person may see."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+          {user?.can_act_on ? (
+            <>
+              <Button variant="secondary" onClick={onSetPassword}>
+                <KeyRound className="size-3.5" aria-hidden />
+                Set password
+              </Button>
+              <Button onClick={onEdit}>
+                <Pencil className="size-3.5" aria-hidden />
+                Edit account
+              </Button>
+            </>
+          ) : null}
+        </>
+      }
+    >
+      {user ? (
+        <div className="space-y-3">
+          <dl className="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-2 text-[13px]">
+            <dt className="text-subtle">Email</dt>
+            <dd className="break-all font-medium text-content">{user.email}</dd>
+            <dt className="text-subtle">Password</dt>
+            <dd className="inline-flex items-center gap-2">
+              <span className="font-mono font-medium text-content">
+                {showPassword ? (user.plain_password || "ChangeMe@123") : "••••••••"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="text-subtle hover:text-content transition-colors p-0.5 rounded focus:outline-none"
+                title={showPassword ? "Hide password" : "Show password"}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+              </button>
+            </dd>
+            <dt className="text-subtle">Role</dt>
+            <dd><RoleBadge role={user.role} /></dd>
+            <dt className="text-subtle">Team</dt>
+            <dd className="text-content">{user.team_name ?? "—"}</dd>
+            <dt className="text-subtle">Reports to</dt>
+            <dd className="text-content">{user.manager_name ?? "Nobody"}</dd>
+            <dt className="text-subtle">Title</dt>
+            <dd className="text-content">{user.title ?? "—"}</dd>
+            <dt className="text-subtle">Phone</dt>
+            <dd className="text-content">{user.phone ?? "—"}</dd>
+            <dt className="text-subtle">Status</dt>
+            <dd>
+              <span className="inline-flex items-center gap-2">
+                <ActiveBadge active={user.is_active} />
+                {user.can_act_on ? (
+                  <button
+                    type="button"
+                    onClick={user.is_active ? onDeactivate : onReactivate}
+                    className="text-[12.5px] text-muted underline underline-offset-2 hover:text-content"
+                  >
+                    {user.is_active ? "Deactivate" : "Reactivate"}
+                  </button>
+                ) : null}
+              </span>
+            </dd>
+          </dl>
+        </div>
+      ) : null}
+    </Modal>
+  );
+}

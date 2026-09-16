@@ -1,0 +1,28 @@
+fastapi==0.118.0
+uvicorn[standard]==0.37.0
+sqlalchemy==2.0.43
+pydantic==2.11.9
+pydantic-settings==2.11.0
+python-multipart==0.0.20
+PyJWT==2.10.1
+bcrypt==4.3.0
+pandas==2.3.3
+openpyxl==3.1.5
+python-dotenv==1.1.1
+email-validator==2.3.0
+
+# The in-portal AI assistant. Optional at runtime: with no ANTHROPIC_API_KEY
+# the feature is off and nothing imports the client, but the package must be
+# installed for the chat module to import at all.
+groq==1.7.0
+
+# Postgres driver. Not installed on Windows dev boxes by default; production
+# and CI install it to run the suite against both dialects.
+psycopg2-binary==2.9.10 ; platform_system != "Windows"
+
+# Runtime since the assistant landed - the groq SDK is built on it. Was
+# test-only when the only caller was the FastAPI TestClient.
+httpx==0.28.1
+
+# --- test only ---
+pytest==8.4.2

@@ -1,0 +1,468 @@
+@import "tailwindcss";
+
+/* Class-based dark mode. The theme is a deliberate user choice stored in
+   localStorage, with the system preference only as the initial default. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   Design tokens
+
+   Two layers on purpose:
+     1. Raw semantic CSS variables below, which flip between light and dark.
+     2. @theme inline, which exposes them to Tailwind as utilities
+        (bg-surface, text-muted, border-line, ...).
+
+   Components only ever use the Tailwind utilities, so a palette change is a
+   change to this file and nothing else.
+   ========================================================================== */
+
+:root {
+  color-scheme: light;
+
+  /* Brand: indigo through iris. */
+  --brand-50: oklch(0.971 0.014 286);
+  --brand-100: oklch(0.941 0.031 286);
+  --brand-200: oklch(0.894 0.056 286);
+  --brand-300: oklch(0.822 0.094 286);
+  --brand-400: oklch(0.724 0.146 286);
+  --brand-500: oklch(0.625 0.194 286);
+  --brand-600: oklch(0.548 0.213 286);
+  --brand-700: oklch(0.476 0.199 286);
+  --brand-800: oklch(0.403 0.161 286);
+  --brand-900: oklch(0.341 0.124 286);
+  --brand-950: oklch(0.229 0.082 286);
+
+  /* Surfaces — a hair warm, so white cards read as cards. */
+  --bg: oklch(0.977 0.002 286);
+  --bg-subtle: oklch(0.958 0.003 286);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.985 0.002 286);
+  --surface-hover: oklch(0.968 0.004 286);
+
+  --line: oklch(0.916 0.004 286);
+  --line-strong: oklch(0.861 0.006 286);
+
+  --text: oklch(0.216 0.011 286);
+  --text-muted: oklch(0.482 0.011 286);
+  --text-subtle: oklch(0.629 0.011 286);
+  --text-inverse: oklch(0.985 0 0);
+
+  --success: oklch(0.596 0.128 158);
+  --success-soft: oklch(0.945 0.038 158);
+  /* Darkened from L 0.681 to clear 3:1 against the white surface — at the
+     lighter value amber measured 2.98:1, which fails as a mark colour and
+     as small text. */
+  --warning: oklch(0.62 0.15 62);
+  --warning-soft: oklch(0.958 0.047 82);
+  --danger: oklch(0.586 0.204 26);
+  --danger-soft: oklch(0.948 0.035 25);
+  --info: var(--brand-600);
+  --info-soft: var(--brand-50);
+
+  --ring: oklch(0.625 0.194 286 / 0.45);
+  --shadow-color: 286 22% 40%;
+
+  --radius: 0.75rem;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: oklch(0.163 0.011 286);
+  --bg-subtle: oklch(0.141 0.011 286);
+  --surface: oklch(0.203 0.012 286);
+  --surface-2: oklch(0.232 0.013 286);
+  --surface-hover: oklch(0.253 0.015 286);
+
+  --line: oklch(0.283 0.013 286);
+  --line-strong: oklch(0.351 0.015 286);
+
+  --text: oklch(0.962 0.003 286);
+  --text-muted: oklch(0.729 0.011 286);
+  --text-subtle: oklch(0.585 0.012 286);
+  --text-inverse: oklch(0.18 0.01 286);
+
+  --success: oklch(0.723 0.135 158);
+  --success-soft: oklch(0.29 0.055 158);
+  --warning: oklch(0.789 0.135 76);
+  --warning-soft: oklch(0.31 0.058 66);
+  --danger: oklch(0.688 0.174 24);
+  --danger-soft: oklch(0.31 0.072 25);
+  --info: oklch(0.724 0.146 286);
+  --info-soft: oklch(0.29 0.07 286);
+
+  --ring: oklch(0.724 0.146 286 / 0.5);
+  --shadow-color: 286 40% 3%;
+}
+
+@theme inline {
+  --color-brand-50: var(--brand-50);
+  --color-brand-100: var(--brand-100);
+  --color-brand-200: var(--brand-200);
+  --color-brand-300: var(--brand-300);
+  --color-brand-400: var(--brand-400);
+  --color-brand-500: var(--brand-500);
+  --color-brand-600: var(--brand-600);
+  --color-brand-700: var(--brand-700);
+  --color-brand-800: var(--brand-800);
+  --color-brand-900: var(--brand-900);
+  --color-brand-950: var(--brand-950);
+
+  --color-bg: var(--bg);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-hover: var(--surface-hover);
+
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+
+  --color-content: var(--text);
+  --color-muted: var(--text-muted);
+  --color-subtle: var(--text-subtle);
+  --color-inverse: var(--text-inverse);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --radius-card: var(--radius);
+
+  --font-sans:
+    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
+
+  --animate-fade-up: fade-up 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.24s ease-out both;
+  --animate-scale-in: scale-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-shimmer: shimmer 1.4s ease-in-out infinite;
+  --animate-slide-in-right: slide-in-right 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  /* Exits. Same curve, a little quicker — leaving should never feel slower
+     than arriving. */
+  --animate-fade-out: fade-out 0.16s ease-in both;
+  --animate-scale-out: scale-out 0.14s cubic-bezier(0.4, 0, 1, 1) both;
+  --animate-slide-out-right: slide-out-right 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  /* A small overshoot, for something that has just become true. */
+  --animate-pop: pop 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* One ring that expands and fades, once. Used to say "this is here" when
+     the assistant launcher first appears - NOT on a loop. */
+  --animate-halo: halo 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.35s both;
+  /* The assistant's "working" state. transform only, so it never leaves the
+     compositor while a response streams in. */
+  --animate-typing: typing 1s ease-in-out infinite;
+  /* The phone-sized assistant, which arrives from the bottom rather than the
+     side - a sheet, not a drawer. */
+  --animate-slide-in-up: slide-in-up 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-out-down: slide-out-down 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(0.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes shimmer {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.85; }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(1.25rem); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes scale-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: scale(0.97); }
+}
+@keyframes slide-out-right {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateX(1.25rem); }
+}
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(1.5rem); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes slide-out-down {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(1.5rem); }
+}
+@keyframes typing {
+  0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+@keyframes halo {
+  from { opacity: 0.7; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.45); }
+}
+@keyframes pop {
+  0% { transform: scale(0.9); opacity: 0; }
+  60% { transform: scale(1.03); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+* {
+  border-color: var(--line);
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+::selection {
+  background-color: var(--brand-200);
+  color: var(--brand-950);
+}
+.dark ::selection {
+  background-color: var(--brand-800);
+  color: var(--brand-50);
+}
+
+/* A visible focus ring for keyboard users, and only for them. */
+:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+
+/* Thin, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--line-strong);
+  border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-subtle);
+  background-clip: content-box;
+}
+
+/* Respect a user who has asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   Small composites used in more than one place
+   ========================================================================== */
+
+@utility card-shadow {
+  box-shadow:
+    0 1px 2px -1px hsl(var(--shadow-color) / 0.10),
+    0 1px 3px hsl(var(--shadow-color) / 0.06);
+}
+
+@utility card-shadow-lg {
+  box-shadow:
+    0 4px 6px -2px hsl(var(--shadow-color) / 0.08),
+    0 12px 24px -6px hsl(var(--shadow-color) / 0.14);
+}
+
+/* The faint grid behind the sign-in page. */
+@utility auth-grid {
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 20%, transparent 75%);
+}
+
+/* Row-by-row entrance for tables and lists, capped so a 200-row page does
+   not spend six seconds animating. */
+@utility stagger {
+  animation: var(--animate-fade-up);
+  animation-delay: calc(var(--index, 0) * 28ms);
+}
+
+/* The whole route body on arrival. One movement for the page, with the
+   pieces inside it free to stagger on top. */
+@utility page-enter {
+  animation: var(--animate-fade-up);
+}
+
+/* The dashboard's welcome band.
+   A single soft brand wash in one corner - not a gradient across the whole
+   surface, which reads as decoration and fights every colour placed on top
+   of it. Painted with a pseudo-element so the card keeps its own background
+   token and stays correct in both themes. */
+@utility hero-band {
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        60rem 18rem at 88% -30%,
+        color-mix(in oklch, var(--brand-500) 12%, transparent),
+        transparent 70%
+      );
+  }
+}
+
+/* ==========================================================================
+   Tables that stop being tables on a phone
+   ==========================================================================
+   Seven columns on a 375px screen is a swipe-fest: you cannot see a row and
+   its status at the same time, which is the only reason to look. Below `md`
+   each row becomes a card, each cell a labelled line.
+
+   No information is dropped. The column header is re-emitted per cell from
+   `data-label`, so a cell that carried a heading on desktop still carries it
+   here; a cell without one (a name, a badge, an action) spans the card, which
+   is what those want anyway.
+
+   CSS only - no JS, no measurement, nothing to keep in step at runtime. */
+@utility table-stack {
+  @media (width < 48rem) {
+    display: block;
+    min-width: 0;
+
+    & thead {
+      /* Not display:none - that removes it from the accessibility tree too.
+         Clipped instead, so a screen reader still reads the headers. */
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    & tbody {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+    }
+
+    & tbody tr {
+      display: block;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--surface);
+      padding: 0.75rem 0.875rem;
+    }
+
+    & tbody td {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      width: 100%;
+      padding: 0.1875rem 0;
+      border: 0;
+      text-align: left;
+    }
+
+    /* The header, re-emitted beside its value. */
+    & tbody td[data-label]::before {
+      content: attr(data-label);
+      flex: none;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+    }
+
+    /* Cells that are their own headline: the name, the actions. They take
+       the full width rather than sitting in a label/value pair. */
+    & tbody td:not([data-label]) {
+      display: block;
+      padding-block: 0.25rem;
+    }
+
+    /* Actions go full width and thumb-sized, at the foot of the card. */
+    & tbody td[data-actions] {
+      margin-top: 0.5rem;
+      padding-top: 0.625rem;
+      border-top: 1px solid var(--line);
+    }
+    & tbody td[data-actions] > * {
+      width: 100%;
+      justify-content: center;
+    }
+  }
+}
+
+/* Padding that clears the home indicator / gesture bar on a modern phone,
+   and collapses to the normal value everywhere else. Used on anything
+   anchored to the bottom edge: sheets, the assistant composer, dialog
+   footers. */
+@utility pb-safe {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+}
+
+/* A scroll container that carries no visible scrollbar. For the tab strip
+   on a phone, where the bar itself would be taller than the affordance is
+   worth. The content still scrolls, by touch and by keyboard. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Lift on hover, for anything that behaves like a card without opting into
+   the Card component's `interactive` prop. */
+@utility hover-lift {
+  transition:
+    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+
+  &:hover {
+    transform: translateY(-2px);
+    border-color: var(--line-strong);
+  }
+}

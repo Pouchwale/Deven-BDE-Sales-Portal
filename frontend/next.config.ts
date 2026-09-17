@@ -18,6 +18,20 @@ const BACKEND_INTERNAL_URL = (process.env.BACKEND_INTERNAL_URL ?? "http://127.0.
 );
 
 /**
+ * On a hosting platform (Render, Vercel, any CI) the localhost default can
+ * never be right: the backend is a different service. Without this check the
+ * build succeeds and every sign-in fails at runtime with ECONNREFUSED
+ * 127.0.0.1:8000 - so fail the build instead, saying what to set.
+ */
+const onHostingPlatform = Boolean(process.env.RENDER || process.env.VERCEL || process.env.CI);
+if (onHostingPlatform && !process.env.BACKEND_INTERNAL_URL?.trim()) {
+  throw new Error(
+    "BACKEND_INTERNAL_URL is not set. Set it on this service to the backend's URL " +
+      "(e.g. https://your-backend.onrender.com) and redeploy - it is baked in at build time.",
+  );
+}
+
+/**
  * An explicit cross-origin API (NEXT_PUBLIC_API_URL) has to be allowed to
  * receive fetches. When the portal is served same-origin - the recommended
  * setup - this is empty and `connect-src 'self'` covers everything.

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Lock, Network, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, Network, ShieldCheck, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -30,6 +30,7 @@ export default function LoginPage() {
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -155,20 +156,36 @@ export default function LoginPage() {
             </Field>
 
             <Field label="Password" htmlFor="password" required>
-              {/* No show-password toggle, by policy: a password is never
-                  rendered as plain text on any screen. */}
-              <Input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                placeholder="Your password"
-                icon={<Lock className="size-4" />}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                invalid={Boolean(error)}
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  placeholder="Your password"
+                  icon={<Lock className="size-4" />}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  invalid={Boolean(error)}
+                  className="pr-10"
+                />
+                {/* Shows only what was just typed, to check it before signing in. */}
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((shown) => !shown)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
+                  title={showPassword ? "Hide password" : "Show password"}
+                  className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content"
+                >
+                  {showPassword ? (
+                    <EyeOff className="size-4" aria-hidden />
+                  ) : (
+                    <Eye className="size-4" aria-hidden />
+                  )}
+                </button>
+              </div>
             </Field>
 
             {error ? <InlineError>{error}</InlineError> : null}

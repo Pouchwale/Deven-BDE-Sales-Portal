@@ -115,6 +115,14 @@ class Settings(BaseSettings):
     # creates accounts. No default: a password written into the code is a
     # password every copy of the code knows.
     SEED_PASSWORD: str = ""
+
+    #: The Super Admin's sign-in, applied at every startup
+    #: (app/services/super_admin_env.py). Change the password here and
+    #: restart. EMAIL/NAME are used only if no Super Admin exists yet.
+    SUPER_ADMIN_USERNAME: str = ""
+    SUPER_ADMIN_PASSWORD: str = ""
+    SUPER_ADMIN_EMAIL: str = ""
+    SUPER_ADMIN_NAME: str = ""
     # Whether seeded accounts must replace the shared password before they can
     # use the portal. Off during development so signing in is one click; the
     # enforcement itself is untouched and turning this on re-arms it for every

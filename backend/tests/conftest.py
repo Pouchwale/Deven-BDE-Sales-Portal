@@ -27,6 +27,11 @@ os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
 os.environ["ENV"] = "test"
 os.environ["SEED_PASSWORD"] = "TestPass@123"
 os.environ["SECRET_KEY"] = "test-secret-key-not-used-anywhere-real"
+# The developer's backend/.env sets the Super Admin's sign-in; the suite's
+# seeded accounts must not be rewritten by it. test_super_admin_env.py sets
+# these explicitly where it needs them.
+os.environ["SUPER_ADMIN_USERNAME"] = ""
+os.environ["SUPER_ADMIN_PASSWORD"] = ""
 # A fixed, test-only Fernet key so the Super Admin's password reveal works.
 os.environ["PASSWORD_VIEW_KEY"] = "dGVzdC1vbmx5LWtleS1ub3QtdXNlZC1hbnl3aGVyZSE="
 # Pinned ON regardless of the developer's .env: the forced password change is

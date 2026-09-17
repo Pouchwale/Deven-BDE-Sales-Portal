@@ -26,7 +26,7 @@ from app.core.config import APP_VERSION, Settings, settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
-from app.services import sap_sync
+from app.services import sap_sync, super_admin_env
 
 configure_logging(settings.LOG_LEVEL, settings.log_format)
 log = get_logger("app.startup")
@@ -87,6 +87,8 @@ def _log_startup_state(config: Settings) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     _log_startup_state(settings)
+    # The Super Admin's username and password come from the env file.
+    super_admin_env.sync_on_startup()
     # Keeps the portal in step with the live SAP workbook; a no-op unless
     # SAP_DATA_FILE is set and SAP_AUTO_SYNC is on.
     sap_sync.start()

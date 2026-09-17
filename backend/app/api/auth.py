@@ -36,7 +36,7 @@ from app.schemas.user import (
     TokenResponse,
     UserOut,
 )
-from app.services import audit
+from app.services import audit, super_admin_env
 from app.services import users as user_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -123,6 +123,15 @@ def login(
         else User.username == login_name
     )
     user = db.execute(select(User).where(lookup)).scalar_one_or_none()
+
+    # The Super Admin's username and password live in the environment. If they
+    # were typed exactly, make the account match before checking - so a fresh
+    # database, a missed startup sync or an earlier lockout never keeps the
+    # Super Admin out.
+    if super_admin_env.matches_env(login_name, payload.password):
+        if super_admin_env.sync(db) in ("created", "updated"):
+            db.commit()
+        user = db.execute(select(User).where(lookup)).scalar_one_or_none()
 
     if user is None:
         burn_password_check(payload.password)

@@ -17,8 +17,8 @@ def _owner(db) -> User:
     ).scalars().first()
 
 
-def _configure(monkeypatch, username: str, password: str, **extra: str) -> None:
-    monkeypatch.setattr(settings, "SUPER_ADMIN_USERNAME", username)
+def _configure(monkeypatch, username: str | None, password: str, **extra: str) -> None:
+    monkeypatch.setattr(settings, "SUPER_ADMIN_USERNAME", username or "")
     monkeypatch.setattr(settings, "SUPER_ADMIN_PASSWORD", password)
     for key, value in extra.items():
         monkeypatch.setattr(settings, key, value)
@@ -91,10 +91,58 @@ def test_creates_a_super_admin_when_none_exists(db, monkeypatch) -> None:
     assert verify_password("Fresh Start 3", created.hashed_password)
 
 
-def test_create_needs_an_email(db, monkeypatch) -> None:
+def test_create_works_without_an_email(db, monkeypatch) -> None:
     for admin in db.execute(select(User).where(User.role == Role.SUPER_ADMIN)).scalars():
         admin.is_active = False
         admin.username = None
     db.flush()
     _configure(monkeypatch, "rootadmin", "Fresh Start 3", SUPER_ADMIN_EMAIL="")
-    assert super_admin_env.sync(db) == "missing-email"
+    assert super_admin_env.sync(db) == "created"
+    created = db.execute(select(User).where(User.username == "rootadmin")).scalar_one()
+    assert created.email == "rootadmin@pouchwale.com"
+
+
+def test_quotes_and_spaces_around_env_values_are_ignored(db, monkeypatch) -> None:
+    owner = _owner(db)
+    _configure(monkeypatch, f"  {owner.username} ", '"Quoted Pass 7" ')
+    assert super_admin_env.sync(db) == "updated"
+    assert verify_password("Quoted Pass 7", owner.hashed_password)
+
+
+def _login(client, identifier, password):
+    return client.post("/api/auth/login", json={"identifier": identifier, "password": password})
+
+
+def test_sign_in_with_env_credentials_on_an_empty_database(client, db, monkeypatch) -> None:
+    """A fresh hosted database: nobody synced at startup, the first sign-in
+    with the env credentials creates the Super Admin."""
+    for admin in db.execute(select(User).where(User.role == Role.SUPER_ADMIN)).scalars():
+        admin.is_active = False
+        admin.username = None
+    db.commit()
+    _configure(monkeypatch, "superadmin", "ChangeMe@123", SUPER_ADMIN_EMAIL="")
+    response = _login(client, "superadmin", "ChangeMe@123")
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["role"] == Role.SUPER_ADMIN
+
+
+def test_env_credentials_get_past_a_lockout(client, db, monkeypatch) -> None:
+    from app.db.base import utcnow
+    from datetime import timedelta
+
+    owner = _owner(db)
+    _configure(monkeypatch, owner.username, "Env Pass 11")
+    super_admin_env.sync(db)
+    owner.locked_until = utcnow() + timedelta(minutes=15)
+    db.commit()
+    assert _login(client, owner.username, "Env Pass 11").status_code == 200
+
+
+def test_wrong_password_for_the_env_username_is_still_refused(client, db, monkeypatch) -> None:
+    owner = _owner(db)
+    _configure(monkeypatch, owner.username, "Env Pass 11")
+    super_admin_env.sync(db)
+    db.commit()
+    response = _login(client, owner.username, "not it")
+    assert response.status_code == 401
+    assert verify_password("Env Pass 11", owner.hashed_password)

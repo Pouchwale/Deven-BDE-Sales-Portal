@@ -6,13 +6,18 @@ of truth for the Super Admin account. Every time the backend starts:
 * the account with that username (which must be a SUPER_ADMIN) gets that
   password, if it does not already have it - and is unlocked and reactivated;
 * if no account has that username yet, the one active Super Admin is renamed
-  to it; with none at all, one is created (SUPER_ADMIN_EMAIL is then needed).
+  to it; with none at all, one is created (SUPER_ADMIN_EMAIL optional).
+
+The same happens at sign-in when the env username and password are typed
+exactly, so the Super Admin can always get in with them.
 
 Changing the password in the env file and restarting is therefore how the
 Super Admin password is changed. Every change is audited; nothing is logged
 that contains the password.
 """
 from __future__ import annotations
+
+import hmac
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,16 +31,48 @@ from app.core.sessions import RevokeReason, revoke_user_sessions
 from app.core.usernames import InvalidUsername, validate_username
 from app.db.base import utcnow
 from app.models.org import User
+from app.seeds.roster import EMAIL_DOMAIN
 from app.services import audit
 
 log = get_logger("app.super_admin")
 
 
+def _clean(value: str) -> str:
+    """Hosting dashboards and hand-edited env files add stray spaces and
+    quotes around values; neither is ever part of the intended value."""
+    text = (value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in "'\"":
+        text = text[1:-1]
+    return text
+
+
+def _env_credentials() -> tuple[str, str]:
+    return _clean(settings.SUPER_ADMIN_USERNAME), _clean(settings.SUPER_ADMIN_PASSWORD)
+
+
+def matches_env(login_name: str, password: str) -> bool:
+    """Is this sign-in exactly the env Super Admin's username and password?
+
+    Used at sign-in so the env credentials work even if the startup sync did
+    not run (or the account was locked since): whoever holds the env password
+    is, by definition, the Super Admin.
+    """
+    raw_username, env_password = _env_credentials()
+    if not raw_username or not env_password:
+        return False
+    try:
+        username = validate_username(raw_username)
+    except InvalidUsername:
+        return False
+    return hmac.compare_digest(login_name.encode(), username.encode()) and hmac.compare_digest(
+        password.encode(), env_password.encode()
+    )
+
+
 def sync(db: Session) -> str:
     """Apply the env credentials. Returns what happened, for logs and tests.
     Commits nothing - the caller does."""
-    raw_username = settings.SUPER_ADMIN_USERNAME.strip()
-    password = settings.SUPER_ADMIN_PASSWORD
+    raw_username, password = _env_credentials()
     if not raw_username or not password:
         return "not-configured"
     try:
@@ -69,10 +106,13 @@ def sync(db: Session) -> str:
                 after={"username": username, "source": "env"},
             )
         elif not admins:
-            email = settings.SUPER_ADMIN_EMAIL.strip().lower()
-            if not email:
-                log.error("No Super Admin exists and SUPER_ADMIN_EMAIL is blank; not created")
-                return "missing-email"
+            # Optional: a hosting dashboard often only gets the username and
+            # password. The address can be corrected later in User admin.
+            email = _clean(settings.SUPER_ADMIN_EMAIL).lower() or f"{username}@{EMAIL_DOMAIN}"
+            taken = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+            if taken is not None:
+                log.error("SUPER_ADMIN_EMAIL belongs to another account; Super Admin not created")
+                return "email-taken"
             user = User(
                 name=settings.SUPER_ADMIN_NAME.strip() or "Super Admin",
                 email=email,

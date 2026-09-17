@@ -209,7 +209,7 @@ def sync_status(_: AdminUser, db: DbSession) -> SyncStatus:
 def sync_events(
     _: AdminUser,
     db: DbSession,
-    status: str | None = Query(default=None),
+    status: str | None = Query(default=None, pattern=r"^[A-Za-z_]{1,30}$"),
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[SyncEventOut]:
     """The delivery ledger. Hashes and outcomes, never payloads."""
@@ -313,7 +313,11 @@ def run_sync(actor: AdminUser, db: DbSession, request: Request) -> SyncResult:
 
 
 @router.get("/customers", response_model=list[dict])
-def resolvable_customers(_: AdminUser, db: DbSession) -> list[dict]:
+def resolvable_customers(
+    _: AdminUser,
+    db: DbSession,
+    limit: int = Query(default=5_000, ge=1, le=5_000),
+) -> list[dict]:
     """Account names, for the "file this response under..." picker.
 
     Exists because browsing the customer book became Super Admin only, and an
@@ -323,7 +327,9 @@ def resolvable_customers(_: AdminUser, db: DbSession) -> list[dict]:
     by another route.
     """
     rows = db.execute(
-        select(Customer.id, Customer.name, Customer.sap_code).order_by(Customer.name)
+        select(Customer.id, Customer.name, Customer.sap_code)
+        .order_by(Customer.name)
+        .limit(limit)
     ).all()
     return [
         {"id": str(row.id), "name": row.name, "sap_code": row.sap_code} for row in rows

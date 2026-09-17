@@ -8,9 +8,10 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = process.env.E2E_APP_URL ?? "http://localhost:3000";
+import { APP, requireSeedPassword } from "./support/session.mjs";
+
 const WHO = process.env.E2E_EMAIL ?? "owner@pouchwale.com";
-const PASSWORD = process.env.E2E_SEED_PASSWORD ?? "ChangeMe@123";
+const PASSWORD = requireSeedPassword();
 
 const SIZES = [
   [320, 720, "small phone"],

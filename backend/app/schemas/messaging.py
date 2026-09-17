@@ -24,6 +24,6 @@ class ComposedMessageOut(BaseModel):
 
 
 class SentBody(BaseModel):
-    purpose: str
-    channel: str
+    purpose: str = Field(max_length=20)
+    channel: str = Field(max_length=20)
     body: str | None = Field(default=None, max_length=4000)

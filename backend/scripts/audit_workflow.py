@@ -7,9 +7,14 @@ feedback, team, and the permission rules in between.
 REFUSES to run against anything but ENV=e2e. It creates leads, post-sale rows,
 references and feedback, and none of that may land in the demo database.
 
-    ENV=e2e DATABASE_URL=sqlite:///./e2e_portal.db GOOGLE_SYNC_SECRET=... \\
+    ENV=e2e DATABASE_URL=<throwaway db> SEED_PASSWORD=... GOOGLE_SYNC_SECRET=... \\
         python -m uvicorn app.main:app --port 8000
-    AUDIT_SYNC_SECRET=... python scripts/audit_workflow.py
+    AUDIT_PASSWORD=<the seed password> AUDIT_SYNC_SECRET=... python scripts/audit_workflow.py
+
+AUDIT_API defaults to http://127.0.0.1:8000. AUDIT_PASSWORD is required - there
+is no default password. Sign-in returns no token in its body; the session
+secret is read from the `bde_session` Set-Cookie and sent back as a Bearer
+credential (which the API accepts without a CSRF token).
 """
 from __future__ import annotations
 
@@ -25,7 +30,11 @@ import urllib.request
 from datetime import date, timedelta
 
 BASE = os.environ.get("AUDIT_API", "http://127.0.0.1:8000")
-PW = os.environ.get("AUDIT_PASSWORD", "ChangeMe@123")
+PW = os.environ.get("AUDIT_PASSWORD", "")
+if not PW:
+    sys.exit("AUDIT_PASSWORD is not set. Set it to the seed password of the e2e server; "
+             "there is no default.")
+SESSION_COOKIE = os.environ.get("AUDIT_SESSION_COOKIE", "bde_session")
 SECRET = os.environ.get("AUDIT_SYNC_SECRET", "")
 
 results: list[tuple[str, str, str]] = []   # (phase, verdict, detail)
@@ -50,7 +59,16 @@ def note(text: str) -> None:
     print(f"  note {text}")
 
 
-def call(path, token=None, method="GET", body=None, raw=None, headers=None):
+def _session_from(headers) -> str | None:
+    """The session secret from a response's Set-Cookie headers."""
+    for line in headers.get_all("Set-Cookie") or []:
+        name, _, rest = line.partition("=")
+        if name.strip() == SESSION_COOKIE:
+            return rest.split(";", 1)[0].strip() or None
+    return None
+
+
+def call(path, token=None, method="GET", body=None, raw=None, headers=None, want_session=False):
     req = urllib.request.Request(BASE + path, method=method)
     req.add_header("Content-Type", "application/json")
     if token:
@@ -61,8 +79,13 @@ def call(path, token=None, method="GET", body=None, raw=None, headers=None):
     try:
         with urllib.request.urlopen(req, data) as r:
             text = r.read()
-            return r.status, (json.loads(text) if text else None)
+            parsed = json.loads(text) if text else None
+            if want_session:
+                return r.status, parsed, _session_from(r.headers)
+            return r.status, parsed
     except urllib.error.HTTPError as e:
+        if want_session:
+            return e.code, None, None
         text = e.read()
         try:
             return e.code, json.loads(text) if text else None
@@ -77,9 +100,10 @@ if code != 200 or (health or {}).get("env") != "e2e":
 
 
 def login(email):
-    code, body = call("/api/auth/login", method="POST", body={"email": email, "password": PW})
-    assert code == 200, f"login failed for {email}: {code} {body}"
-    return body["access_token"], body["user"]
+    code, body, session = call("/api/auth/login", method="POST",
+                               body={"email": email, "password": PW}, want_session=True)
+    assert code == 200 and session, f"login failed for {email}: {code}"
+    return session, body["user"]
 
 
 T = {}

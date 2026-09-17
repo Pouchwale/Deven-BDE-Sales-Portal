@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { api } from "@/lib/api";
+import { pollWhileVisible } from "@/lib/visiblePoll";
 
 interface NotificationsContextValue {
   unread: number;
@@ -45,12 +46,13 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     }
 
     void poll();
-    const timer = window.setInterval(poll, POLL_MS);
+    // Paused while the tab is in the background; catches up when it returns.
+    const stopPolling = pollWhileVisible(() => void poll(), POLL_MS);
 
     return () => {
       active = false;
       controller.abort();
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [nonce]);
 

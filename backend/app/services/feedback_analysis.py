@@ -282,6 +282,33 @@ def pending_requests(
     return items
 
 
+def pending_count(db: Session, actor: User, scope: set[uuid.UUID] | _All) -> int:
+    """`len(pending_requests(...))`, without building the rows.
+
+    The dashboard shows only the number, and building the list loaded every
+    eligible lead and every request object just to count them. Same
+    population, same rule: a lead drops out when its MOST RECENT request (by
+    `sent_at`, as `feedback_requests.for_subjects` picks it) is COMPLETED.
+    """
+    from app.models.feedback import FeedbackRequest
+
+    eligible_ids = metrics.post_sale_population(db, scope)["eligible_lead_ids"]
+    if not eligible_ids:
+        return 0
+    latest: dict[uuid.UUID, str] = {}
+    for lead_id, status in db.execute(
+        select(FeedbackRequest.lead_id, FeedbackRequest.status)
+        .where(FeedbackRequest.lead_id.in_(eligible_ids))
+        .order_by(FeedbackRequest.sent_at)
+    ).all():
+        latest[lead_id] = status  # ascending, so the last write is the newest
+    return sum(
+        1
+        for lead_id in set(eligible_ids)
+        if latest.get(lead_id) != FeedbackRequestStatus.COMPLETED
+    )
+
+
 def _request_fields(request) -> dict:
     """The request half of a pending row, or the not-asked shape.
 
@@ -306,10 +333,16 @@ def _request_fields(request) -> dict:
 def assign_alert(
     db: Session, actor: User, alert: FeedbackAlert, user_id: uuid.UUID | None
 ) -> FeedbackAlert:
-    """Hand a flagged department to a person, or clear the assignee."""
+    """Hand a flagged department to a person, or clear the assignee.
+
+    Audited in the same transaction: who handed the alert to whom is exactly
+    the question somebody asks when an alert sat unhandled.
+    """
+    previous = alert.assigned_to_user_id
     if user_id is None:
         alert.assigned_to_user_id = None
         db.flush()
+        _audit_alert_assignment(db, actor, alert, previous)
         return alert
 
     assignee = db.get(User, user_id)
@@ -322,7 +355,30 @@ def assign_alert(
 
     alert.assigned_to_user_id = assignee.id
     db.flush()
+    _audit_alert_assignment(db, actor, alert, previous)
     return alert
+
+
+def _audit_alert_assignment(
+    db: Session, actor: User, alert: FeedbackAlert, previous: uuid.UUID | None
+) -> None:
+    from app.core.constants import AuditAction, EntityType
+    from app.services import audit
+
+    if previous == alert.assigned_to_user_id:
+        return
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action=AuditAction.FEEDBACK_ALERT_ASSIGNED,
+        entity_type=EntityType.FEEDBACK,
+        entity_id=alert.id,
+        before={"assigned_to_user_id": previous},
+        after={
+            "assigned_to_user_id": alert.assigned_to_user_id,
+            "department_id": alert.department_id,
+        },
+    )
 
 
 def responses_per_month(db: Session, *, months: int = 6) -> list[dict]:

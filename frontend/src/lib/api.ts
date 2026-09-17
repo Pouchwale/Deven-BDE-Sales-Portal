@@ -1,8 +1,9 @@
 /**
  * The single door to the backend.
  *
- * Everything goes through `request`, so the bearer token, the error envelope
- * and the "your session expired" path are handled in exactly one place.
+ * Everything goes through `request`, so cookie credentials, the CSRF header,
+ * the error envelope and the "your session expired" path are handled in
+ * exactly one place.
  */
 import type {
   ApiErrorBody,
@@ -22,6 +23,7 @@ import type {
   CustomerDetail,
   CustomerStats,
   Dashboard,
+  Department,
   DryRunResult,
   Feedback,
   FeedbackAlert,
@@ -53,6 +55,7 @@ import type {
   TokenResponse,
   UpdateUserBody,
   User,
+  UserActivityItem,
   UserDetail,
   WorkQueue,
 } from "@/types/api";
@@ -60,27 +63,25 @@ import type {
 /**
  * Where the API lives.
  *
- * An explicit `NEXT_PUBLIC_API_URL` always wins - that is how a real
- * deployment points the browser at its own API host.
- *
- * With nothing configured we ask the page itself: whatever host served the
- * app, the API is port 8000 of that same host. That default is what makes the
- * portal reachable from a phone on the same network. A hard-coded `localhost`
- * only ever works on the machine running the servers - on a phone `localhost`
- * is the phone, and every request dies before it leaves the device.
+ * By default: the same origin that served the page. `/api/*` is proxied to
+ * the backend (a Next.js rewrite in development, the reverse proxy in
+ * production), which is what lets the session cookie be first-party and
+ * HttpOnly. `NEXT_PUBLIC_API_URL` overrides this only when explicitly set.
  */
 function resolveApiUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/$/, "");
-  if (configured) return configured;
-  if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
-  }
-  return "http://localhost:8000";
+  return process.env.NEXT_PUBLIC_API_URL?.trim().replace(/\/$/, "") ?? "";
 }
 
 export const API_URL = resolveApiUrl();
 
-const TOKEN_KEY = "bde_portal_token";
+/** Never names an internal address: the person cannot act on it. */
+const NETWORK_ERROR_MESSAGE = "Cannot reach the server. Please try again.";
+
+/** Must match the backend's CSRF_COOKIE_NAME. */
+const CSRF_COOKIE = "bde_csrf";
+
+/** Where older builds kept a bearer token. Removed once on load. */
+const LEGACY_TOKEN_KEY = "bde_portal_token";
 
 /** A failure that carries the backend's machine-readable code. */
 export class ApiError extends Error {
@@ -106,37 +107,48 @@ export class ApiError extends Error {
   }
 }
 
-/* ------------------------------------------------------------------ token */
-export function getToken(): string | null {
-  if (typeof window === "undefined") return null;
+/* --------------------------------------------------------------- session */
+/**
+ * The session lives in an HttpOnly cookie the page cannot read - by design,
+ * so an injected script cannot steal it. What the page CAN read is the CSRF
+ * cookie, which it echoes in a header on every state-changing request.
+ */
+export function readCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  for (const part of document.cookie.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+    if (name === CSRF_COOKIE) return decodeURIComponent(rest.join("="));
+  }
+  return null;
+}
+
+/** Drop the bearer token older builds stored in localStorage. */
+export function clearLegacyToken(): void {
+  if (typeof window === "undefined") return;
   try {
-    return window.localStorage.getItem(TOKEN_KEY);
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY);
   } catch {
     // Private windows and hardened browser settings can throw on access.
-    return null;
   }
 }
 
-export function setToken(token: string | null): void {
-  if (typeof window === "undefined") return;
-  try {
-    if (token === null) window.localStorage.removeItem(TOKEN_KEY);
-    else window.localStorage.setItem(TOKEN_KEY, token);
-  } catch {
-    /* nothing we can do, and nothing worth breaking the page over */
-  }
+function csrfHeader(method: string): Record<string, string> {
+  if (method === "GET" || method === "HEAD") return {};
+  const token = readCsrfToken();
+  return token ? { "X-CSRF-Token": token } : {};
 }
 
 /* ---------------------------------------------------------------- request */
 type Query = Record<string, string | number | boolean | null | undefined>;
 
 function buildUrl(path: string, query?: Query): string {
-  const url = new URL(API_URL + path);
+  const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === null || value === "") continue;
-    url.searchParams.set(key, String(value));
+    params.set(key, String(value));
   }
-  return url.toString();
+  const search = params.toString();
+  return `${API_URL}${path}${search ? `?${search}` : ""}`;
 }
 
 interface RequestOptions {
@@ -148,16 +160,16 @@ interface RequestOptions {
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, query, signal } = options;
-  const token = getToken();
 
   let response: Response;
   try {
     response = await fetch(buildUrl(path, query), {
       method,
       signal,
+      credentials: "include",
       headers: {
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...csrfHeader(method),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -165,12 +177,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
     // A dead backend is by far the most common cause here, and "Failed to
     // fetch" tells the user nothing actionable.
-    throw new ApiError(
-      0,
-      "NETWORK_ERROR",
-      `Cannot reach the server at ${API_URL}. Is the backend running?`,
-      {},
-    );
+    throw new ApiError(0, "NETWORK_ERROR", NETWORK_ERROR_MESSAGE, {});
   }
 
   if (response.status === 204) return undefined as T;
@@ -218,7 +225,8 @@ export interface SapImportResult {
 }
 
 export interface SapSyncStatus {
-  linked_file: string | null;
+  /** Whether the server has a workbook configured. Its path is never sent. */
+  linked: boolean;
   linked_file_name: string | null;
   file_found: boolean;
   file_saved_at: string | null;
@@ -236,7 +244,6 @@ export interface SapSyncStatus {
 /** Multipart upload. Kept separate so `request` stays a JSON-only path — the
  *  browser must set its own multipart boundary, so no Content-Type here. */
 async function upload<T>(path: string, file: File): Promise<T> {
-  const token = getToken();
   const form = new FormData();
   form.append("file", file);
 
@@ -244,16 +251,12 @@ async function upload<T>(path: string, file: File): Promise<T> {
   try {
     response = await fetch(buildUrl(path), {
       method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+      headers: csrfHeader("POST"),
       body: form,
     });
   } catch {
-    throw new ApiError(
-      0,
-      "NETWORK_ERROR",
-      `Cannot reach the server at ${API_URL}. Is the backend running?`,
-      {},
-    );
+    throw new ApiError(0, "NETWORK_ERROR", NETWORK_ERROR_MESSAGE, {});
   }
 
   const text = await response.text();
@@ -275,26 +278,25 @@ async function upload<T>(path: string, file: File): Promise<T> {
 /**
  * The assistant's reply, as it arrives.
  *
- * Deliberately not `EventSource`: that cannot send an Authorization header,
- * and the token is the only thing establishing who is asking. So this is
- * `fetch` + a reader, following `upload`'s precedent of stepping around
- * `request` while reusing `getToken` and `ApiError`.
+ * Deliberately not `EventSource`: that can only GET and cannot send the
+ * CSRF header a POST needs. So this is `fetch` + a reader, following
+ * `upload`'s precedent of stepping around `request` while reusing the same
+ * cookie credentials, CSRF header and `ApiError`.
  */
 export async function* streamChat(
   message: string,
   conversationId: string | null,
   signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
-  const token = getToken();
-
   let response: Response;
   try {
     response = await fetch(buildUrl("/api/chat/messages"), {
       method: "POST",
       signal,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...csrfHeader("POST"),
       },
       body: JSON.stringify({
         message,
@@ -303,12 +305,7 @@ export async function* streamChat(
     });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
-    throw new ApiError(
-      0,
-      "NETWORK_ERROR",
-      `Cannot reach the server at ${API_URL}. Is the backend running?`,
-      {},
-    );
+    throw new ApiError(0, "NETWORK_ERROR", NETWORK_ERROR_MESSAGE, {});
   }
 
   // Failures arrive before the stream starts, as an ordinary error envelope.
@@ -376,16 +373,24 @@ function parseFrame(frame: string): ChatEvent | null {
 /* ------------------------------------------------------------------- api */
 export const api = {
   auth: {
-    login: (email: string, password: string) =>
+    /** `identifier` is a username ("navya") or the full email address. */
+    login: (identifier: string, password: string) =>
       request<TokenResponse>("/api/auth/login", {
         method: "POST",
-        body: { email, password },
+        body: { identifier, password },
       }),
+    /** Ends this session server-side and clears both cookies. Idempotent. */
+    logout: () => request<Message>("/api/auth/logout", { method: "POST" }),
     me: (signal?: AbortSignal) => request<User>("/api/auth/me", { signal }),
-    changePassword: (oldPassword: string, newPassword: string) =>
+    /** Ends EVERY session this person holds, this one included. */
+    changePassword: (oldPassword: string, newPassword: string, confirmPassword?: string) =>
       request<Message>("/api/auth/change-password", {
         method: "POST",
-        body: { old_password: oldPassword, new_password: newPassword },
+        body: {
+          old_password: oldPassword,
+          new_password: newPassword,
+          ...(confirmPassword !== undefined ? { confirm_password: confirmPassword } : {}),
+        },
       }),
   },
 
@@ -404,18 +409,37 @@ export const api = {
       request<UserDetail>("/api/users", { method: "POST", body }),
     update: (id: string, body: UpdateUserBody) =>
       request<UserDetail>(`/api/users/${id}`, { method: "PATCH", body }),
-    /** Set somebody's password. Nothing comes back but a message: existing
-     *  passwords cannot be read (one-way hashes), and the new one is not
-     *  echoed either - whoever set it already has it. */
+    /** Set somebody's password. Nothing comes back but a message - whoever
+     *  set it already has it. */
     setPassword: (
       id: string,
-      newPassword?: string | null,
+      newPassword: string,
+      confirmPassword: string,
       mustChange = true,
     ) =>
       request<PasswordSetResult>(`/api/users/${id}/reset-password`, {
         method: "POST",
-        body: { new_password: newPassword || null, must_change: mustChange },
+        body: {
+          new_password: newPassword,
+          confirm_password: confirmPassword,
+          must_change: mustChange,
+        },
       }),
+    /** Super Admin only, audited. `password` is null when no copy exists. */
+    revealPassword: (id: string) =>
+      request<{ password: string | null }>(`/api/users/${id}/password`),
+    /** Clear a sign-in lockout and the failed-attempt counter. */
+    unlock: (id: string) =>
+      request<UserDetail>(`/api/users/${id}/unlock`, { method: "POST" }),
+    /** Audit events about this person or performed by them, newest first. */
+    activity: (
+      id: string,
+      query: { page: number; page_size: number },
+      signal?: AbortSignal,
+    ) =>
+      request<Page<UserActivityItem>>(`/api/users/${id}/activity`, { query, signal }),
+    departments: (signal?: AbortSignal) =>
+      request<Department[]>("/api/departments", { signal }),
     deactivate: (id: string, newManagerId?: string | null) =>
       request<Message>(`/api/users/${id}`, {
         method: "DELETE",

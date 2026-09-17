@@ -5,8 +5,9 @@ import uuid
 
 from fastapi import APIRouter, Query, Request, status
 
+from app.core.constants import ReferenceOutcome, ReferenceStatus
 from app.core.deps import CurrentUser, DbSession, VisibilityScope, client_ip
-from app.schemas.common import Page
+from app.schemas.common import MAX_LIST_ITEMS, MAX_PAGE, MAX_PAGE_SIZE, Page
 from app.schemas.reference import (
     AskableAccount,
     FollowUpDue,
@@ -48,12 +49,18 @@ def follow_ups(
     scope: VisibilityScope,
     include_future: bool = Query(default=False),
     group_by: str = Query(default="due_date", pattern="^(due_date|owner)$"),
+    limit: int = Query(default=MAX_LIST_ITEMS, ge=1, le=MAX_LIST_ITEMS),
 ) -> list[FollowUpDue]:
     """The reference follow-up bucket of the work queue."""
     rows = reference_service.follow_ups_due(
         db, actor, scope, include_future=include_future, group_by=group_by
     )
-    return [FollowUpDue(**row) for row in rows]
+    return [FollowUpDue(**row) for row in rows[:limit]]
+
+
+#: The Reference Tracking page pages this list in the browser, so the cap is
+#: generous - it exists to bound the response, not to page it.
+MAX_ASKABLE_ACCOUNTS = 5_000
 
 
 @router.get("/accounts", response_model=list[AskableAccount])
@@ -61,9 +68,10 @@ def askable_accounts(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    reference_status: str | None = Query(default=None),
+    reference_status: ReferenceStatus | None = Query(default=None),
     search: str | None = Query(default=None, max_length=120),
     owner_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=MAX_ASKABLE_ACCOUNTS, ge=1, le=MAX_ASKABLE_ACCOUNTS),
 ) -> list[AskableAccount]:
     """Every won account that can be asked for a reference.
 
@@ -72,17 +80,15 @@ def askable_accounts(
     database, over the caller's scope - never in the browser over a page that
     happens to have been fetched.
     """
-    return [
-        AskableAccount(**row)
-        for row in reference_service.askable_accounts(
-            db,
-            actor,
-            scope,
-            reference_status=reference_status,
-            search=search,
-            owner_id=owner_id,
-        )
-    ]
+    rows = reference_service.askable_accounts(
+        db,
+        actor,
+        scope,
+        reference_status=str(reference_status) if reference_status else None,
+        search=search,
+        owner_id=owner_id,
+    )
+    return [AskableAccount(**row) for row in rows[:limit]]
 
 
 @router.get("", response_model=Page[ReferenceOut])
@@ -91,16 +97,16 @@ def list_references(
     scope: VisibilityScope,
     _: CurrentUser,
     customer_id: uuid.UUID | None = Query(default=None),
-    outcome: str | None = Query(default=None),
+    outcome: ReferenceOutcome | None = Query(default=None),
     search: str | None = Query(default=None, max_length=120),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=25, ge=1, le=200),
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
+    page_size: int = Query(default=25, ge=1, le=MAX_PAGE_SIZE),
 ) -> Page[ReferenceOut]:
     rows, total = reference_service.list_references(
         db,
         scope,
         customer_id=customer_id,
-        outcome=outcome,
+        outcome=str(outcome) if outcome else None,
         search=search,
         page=page,
         page_size=page_size,

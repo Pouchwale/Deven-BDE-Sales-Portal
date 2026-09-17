@@ -19,12 +19,13 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright-core";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const SHOTS = join(HERE, "screenshots");
+import { APP, BROWSER_CHANNEL, pageApi, requireSeedPassword } from "./support/session.mjs";
 
-const APP = process.env.E2E_APP_URL ?? "http://localhost:3000";
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SHOTS = process.env.E2E_SCREENSHOT_DIR ?? join(HERE, "screenshots");
+
 const EMAIL = process.env.E2E_EMAIL ?? "parth.fulvani@pouchwale.com";
-const PASSWORD = process.env.E2E_SEED_PASSWORD ?? "ChangeMe@123";
+const PASSWORD = requireSeedPassword();
 
 let passed = 0;
 let failed = 0;
@@ -51,7 +52,7 @@ async function main() {
   if (!existsSync(SHOTS)) mkdirSync(SHOTS, { recursive: true });
 
   const browser = await chromium.launch({
-    channel: "chrome",
+    channel: BROWSER_CHANNEL,
     args: ["--disable-blink-features=AutomationControlled"],
   });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -74,13 +75,7 @@ async function main() {
     //   available=false          -> nothing renders at all
     //   available=true, no key   -> launcher + setup state, no composer
     //   enabled=true             -> the full journey below
-    const status = await page.evaluate(async () => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const response = await fetch("http://localhost:8000/api/chat/status", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return response.json();
-    });
+    const status = (await pageApi(page, "/api/chat/status")).body ?? {};
 
     if (!status.available) {
       await page.waitForTimeout(1_000);

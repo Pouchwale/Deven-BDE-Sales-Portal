@@ -171,7 +171,11 @@ def translate(error: Exception) -> ChatUnavailable:
             "LLM_ERROR", "I couldn't complete that request. Please try again."
         )
 
-    logger.exception("Unexpected assistant failure")
+    # The type only, never the message or traceback locals: an unexpected
+    # failure here is as likely to be a database error as a provider one, and
+    # a driver message quotes the statement's parameters - which include the
+    # user's own question.
+    logger.error("Unexpected assistant failure: %s", type(error).__name__)
     return ChatUnavailable(
         "LLM_ERROR", "Something went wrong answering that. Please try again."
     )

@@ -7,6 +7,14 @@ from pydantic import BaseModel, ConfigDict
 
 T = TypeVar("T")
 
+#: Bounds for every paginated list endpoint. 200 because the Team page asks
+#: for 200 users in one go; nothing else asks for more than 50.
+MAX_PAGE_SIZE = 200
+#: Past this an offset scan is pointless work; nobody pages 10,000 deep.
+MAX_PAGE = 10_000
+#: Hard cap for the few endpoints that return a bare list (no Page envelope).
+MAX_LIST_ITEMS = 1_000
+
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)

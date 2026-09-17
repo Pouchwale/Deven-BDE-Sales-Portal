@@ -391,7 +391,14 @@ class AuditAction(StrEnum):
     ROLE_CHANGED = "ROLE_CHANGED"
     REPORTING_LINE_CHANGED = "REPORTING_LINE_CHANGED"
     PASSWORD_RESET = "PASSWORD_RESET"
+    PASSWORD_VIEWED = "PASSWORD_VIEWED"
     PASSWORD_CHANGED = "PASSWORD_CHANGED"
+    LOGIN_SUCCEEDED = "LOGIN_SUCCEEDED"
+    LOGIN_FAILED = "LOGIN_FAILED"
+    LOGIN_LOCKED = "LOGIN_LOCKED"
+    LOGOUT = "LOGOUT"
+    SESSIONS_REVOKED = "SESSIONS_REVOKED"
+    ACCOUNT_UNLOCKED = "ACCOUNT_UNLOCKED"
     USER_DEACTIVATED = "USER_DEACTIVATED"
     USER_REACTIVATED = "USER_REACTIVATED"
     USER_DELETED = "USER_DELETED"
@@ -415,6 +422,10 @@ class AuditAction(StrEnum):
     FEEDBACK_SYNCED = "FEEDBACK_SYNCED"
     FEEDBACK_ALERT_ASSIGNED = "FEEDBACK_ALERT_ASSIGNED"
     SETTINGS_UPDATED = "SETTINGS_UPDATED"
+    # The post-sale sheet: a batch brought in, and a person filing an
+    # unmatched row under a lead. Both change who is askable for a reference.
+    POST_SALE_SYNCED = "POST_SALE_SYNCED"
+    POST_SALE_RESOLVED = "POST_SALE_RESOLVED"
     # One row per tool the assistant ran, so an answer can be traced back to
     # the reads that produced it.
     CHAT_TOOL_INVOKED = "CHAT_TOOL_INVOKED"

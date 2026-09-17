@@ -15,6 +15,7 @@ from tests.conftest import (
     SEED_PASSWORD,
     auth,
     new_email,
+    session_secret,
     sign_in,
     super_admin_headers,
     token_for,
@@ -64,7 +65,7 @@ def test_seeded_account_must_change_password_before_using_the_portal(client, use
     )
     assert login.status_code == 200
     assert login.json()["must_change_password"] is True
-    headers = auth(login.json()["access_token"])
+    headers = auth(session_secret(login))
 
     # /auth/me stays reachable so the UI can greet them; everything else does not.
     assert client.get("/api/auth/me", headers=headers).status_code == 200
@@ -178,7 +179,7 @@ def test_admin_creates_a_bde_under_a_manager(client, users) -> None:
         json={
             "name": "New Starter",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "BDE",
             "manager_id": str(users["Navya Rupawat"].id),
         },
@@ -199,7 +200,7 @@ def test_admin_cannot_create_another_admin(client, users) -> None:
         json={
             "name": "Second Director",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "ADMIN",
         },
     )
@@ -215,7 +216,7 @@ def test_super_admin_can_create_an_admin(client, users) -> None:
         json={
             "name": "Second Director",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "ADMIN",
         },
     )
@@ -230,7 +231,7 @@ def test_managers_cannot_create_users(client, users) -> None:
         json={
             "name": "Their Hire",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "BDE",
         },
     )
@@ -244,7 +245,7 @@ def test_duplicate_email_is_rejected(client, users) -> None:
         json={
             "name": "Clash",
             "email": users["Parth Fulvani"].email.upper(),   # case-insensitive
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "BDE",
         },
     )
@@ -259,7 +260,7 @@ def test_a_bde_cannot_be_given_reports(client, users) -> None:
         json={
             "name": "Under A BDE",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "BDE",
             "manager_id": str(users["Parth Fulvani"].id),
         },
@@ -360,13 +361,9 @@ def test_a_set_password_never_reaches_the_audit_trail(client, users, db) -> None
     }
 
 
-def test_an_omitted_password_is_generated_but_still_not_returned(client, users) -> None:
-    """A generated password locks the account rather than leaking it.
-
-    The browser generates the one an administrator hands over, so the server
-    never has to send a credential back. Omitting it here still rotates the
-    password - the old one stops working - it simply cannot be read.
-    """
+def test_an_omitted_password_is_refused(client, users) -> None:
+    """The server never invents a password, so it never holds a plaintext it
+    would have to hand back. Omitting one is a 422 and changes nothing."""
     target = users["Shivani Patel"]
     client.post(
         f"/api/users/{target.id}/reset-password",
@@ -378,13 +375,13 @@ def test_an_omitted_password_is_generated_but_still_not_returned(client, users) 
         headers=sign_in(client, users["Shail Patel"]),
         json={},
     )
-    assert response.status_code == 200, response.text
-    assert "password" not in response.json()
+    assert response.status_code == 422, response.text
+    assert "KnownFirst" not in response.text
 
-    stale = client.post(
+    still = client.post(
         "/api/auth/login", json={"email": target.email, "password": "KnownFirst@2026"}
     )
-    assert stale.status_code == 401, "the previous password still worked"
+    assert still.status_code == 200, "a refused reset must not rotate the password"
 
 
 def test_a_password_can_be_set_without_forcing_a_change(client, users) -> None:
@@ -562,13 +559,14 @@ def test_super_admin_cannot_demote_themselves(client, users) -> None:
     client.patch("/api/me", headers=sign_in(client, owner), json={"role": "BDE"})
     assert owner.role == Role.SUPER_ADMIN
 
-    # ...and not through the admin route either: nobody may act on themselves.
+    # ...and not through the admin route either: nobody may act on themselves,
+    # and the last active Super Admin is refused with that specific reason.
     response = client.patch(
         f"/api/users/{owner.id}",
         headers=sign_in(client, owner),
         json={"role": "BDE"},
     )
-    assert response.status_code == 403
+    assert response.status_code in (403, 409)
     assert owner.role == Role.SUPER_ADMIN
 
 
@@ -576,14 +574,16 @@ def test_super_admin_cannot_demote_themselves(client, users) -> None:
 def test_every_gated_mutation_writes_an_audit_row(client, db, users) -> None:
     from app.models.system import AuditEvent
 
+    # Signed in first: a sign-in writes its own audit row now.
+    headers = sign_in(client, users["Shail Patel"])
     before = db.query(AuditEvent).count()
     client.post(
         "/api/users",
-        headers=sign_in(client, users["Shail Patel"]),
+        headers=headers,
         json={
             "name": "Audited Hire",
             "email": new_email(),
-            "password": "Welcome@2026",
+            "password": "Onboard@2026x",
             "role": "BDE",
             "manager_id": str(users["Navya Rupawat"].id),
         },
@@ -618,6 +618,34 @@ def test_an_account_with_no_history_can_be_deleted(client, users, db) -> None:
     assert response.status_code == 200, response.text
     assert "permanently deleted" in response.json()["message"]
     assert db.get(User, uuid.UUID(created["id"])) is None
+
+
+def test_a_session_row_alone_does_not_block_deletion(client, users, db) -> None:
+    """user_sessions is sign-in bookkeeping (ON DELETE CASCADE), not work.
+    Found by the e2e run: a session made an account undeletable."""
+    from app.core import sessions as session_store
+    from app.models.org import User
+    from app.services import users as user_service
+
+    headers = super_admin_headers(client)
+    created = client.post(
+        "/api/users",
+        headers=headers,
+        json={
+            "name": "Session Only",
+            "email": new_email(),
+            "password": "Kq7vRt2mWx9p",
+            "confirm_password": "Kq7vRt2mWx9p",
+            "role": Role.BDE,
+        },
+    ).json()
+    target = db.get(User, uuid.UUID(created["id"]))
+    session_store.create_session(db, target)
+    db.flush()
+
+    assert not any(
+        row["table"] == "user_sessions" for row in user_service.deletion_blockers(db, target)
+    )
 
 
 def test_deleting_somebody_with_history_is_refused_with_the_reason(
@@ -666,7 +694,8 @@ def test_a_super_admin_cannot_delete_themselves(client, users) -> None:
         f"/api/users/{users['Portal Owner'].id}/permanent",
         headers=super_admin_headers(client),
     )
-    assert response.status_code == 403
+    # 409 when they are the last active Super Admin, 403 (self) otherwise.
+    assert response.status_code in (403, 409)
 
 
 def test_deleting_a_user_does_not_touch_anybody_elses_rows(client, users, db) -> None:
@@ -695,28 +724,23 @@ def test_deleting_a_user_does_not_touch_anybody_elses_rows(client, users, db) ->
     assert db.scalar(select(func.count(User.id))) == before_users
 
 
-def test_an_explicit_null_password_generates_one(client, users) -> None:
-    """The browser sends `new_password: null`, not an absent key.
-
-    Those are the same intent and must behave the same. They did not: the
-    length constraint sat outside the optional, so pydantic rejected null as
-    "not a valid string" and the dialog failed with a 422.
-    """
+def test_an_explicit_null_password_is_refused(client, users) -> None:
+    """`new_password: null` and an absent key are the same intent: no
+    password. Both are refused - nothing is generated server-side."""
     response = client.post(
         f"/api/users/{users['Shivani Patel'].id}/reset-password",
         headers=sign_in(client, users["Shail Patel"]),
         json={"new_password": None, "must_change": True},
     )
-    assert response.status_code == 200, response.text
-    assert "password" not in response.json(), "a credential came back in the response"
+    assert response.status_code == 422, response.text
 
 
-def test_a_too_short_password_is_still_refused(client, users) -> None:
-    """Making the field optional must not make it lax."""
+def test_an_empty_password_is_still_refused(client, users) -> None:
+    """No length rule any more, but a blank password is not a password."""
     response = client.post(
         f"/api/users/{users['Shivani Patel'].id}/reset-password",
         headers=sign_in(client, users["Shail Patel"]),
-        json={"new_password": "short"},
+        json={"new_password": ""},
     )
     assert response.status_code == 422
 

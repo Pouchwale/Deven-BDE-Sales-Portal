@@ -18,6 +18,10 @@ What this deliberately does NOT seed
     python -m app.seeds.seed
     python -m app.seeds.seed --skip-sap
     python -m app.seeds.seed --reset-passwords   # undo an E2E run's changes
+
+Production (ENV=production) refuses unless --allow-production is passed, and
+even then seeds only teams, departments and settings. The first account there
+comes from `python -m app.seeds.bootstrap_admin`.
 """
 from __future__ import annotations
 
@@ -28,7 +32,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import hash_password
+from app.core import password_vault
+from app.core.usernames import assign_missing_usernames
 from app.db.base import utcnow
 from app.db.session import SessionLocal, engine
 from app.models.customer import Customer
@@ -37,6 +42,10 @@ from app.models.system import AppSetting
 from app.seeds.roster import DEFAULT_SETTINGS, DEPARTMENTS, ROSTER, TEAMS
 from app.services.customer_source import FileCustomerSource
 from app.services.sap_import import import_source
+
+
+class SeedRefused(RuntimeError):
+    """The seed will not do what was asked, for a reason worth reading."""
 
 
 def seed_teams(db: Session) -> dict[str, Team]:
@@ -73,9 +82,25 @@ def seed_users(db: Session, teams: dict[str, Team]) -> dict[str, User]:
     One pass would need the roster sorted so a manager always precedes their
     reports, which makes the roster fragile to edit.
     """
+    if settings.is_production:
+        # Belt and braces: `run` never calls this in production. A roster of
+        # accounts sharing one known password is a development fixture.
+        raise SeedRefused(
+            "Refusing to create roster users in production. Create the first "
+            "administrator with: python -m app.seeds.bootstrap_admin"
+        )
+
     by_email = {u.email: u for u in db.execute(select(User)).scalars()}
     by_name: dict[str, User] = {}
     created = 0
+
+    missing = [e for e in ROSTER if e.resolved_email not in by_email]
+    if missing and not settings.SEED_PASSWORD.strip():
+        raise SeedRefused(
+            f"SEED_PASSWORD is not set, and {len(missing)} roster account(s) "
+            "need creating. Set SEED_PASSWORD in backend/.env (development "
+            "only) or run with --skip-users."
+        )
 
     for entry in ROSTER:
         email = entry.resolved_email
@@ -87,14 +112,14 @@ def seed_users(db: Session, teams: dict[str, Team]) -> dict[str, User]:
                 role=str(entry.role),
                 title=entry.title,
                 team_id=teams[entry.team_code].id if entry.team_code else None,
-                hashed_password=hash_password(settings.SEED_PASSWORD),
-                plain_password=settings.SEED_PASSWORD,
+                hashed_password="",
                 is_active=True,
                 # Off during development (SEED_FORCE_PASSWORD_CHANGE) so
                 # signing in is one click. When it is on, the account is not
                 # really theirs until they replace the shared password.
                 must_change_password=settings.SEED_FORCE_PASSWORD_CHANGE,
             )
+            password_vault.set_password(user, settings.SEED_PASSWORD)
             db.add(user)
             by_email[email] = user
             created += 1
@@ -190,8 +215,7 @@ def reset_passwords(db: Session) -> int:
     """
     users = list(db.execute(select(User)).scalars().all())
     for user in users:
-        user.hashed_password = hash_password(settings.SEED_PASSWORD)
-        user.plain_password = settings.SEED_PASSWORD
+        password_vault.set_password(user, settings.SEED_PASSWORD)
         user.must_change_password = settings.SEED_FORCE_PASSWORD_CHANGE
         user.password_changed_at = utcnow()
     db.flush()
@@ -209,24 +233,47 @@ def summarise(db: Session) -> None:
     print(f"  users                {user_count}")
     print(f"  customers            {customer_count} ({owned} owned, "
           f"{customer_count - owned} unowned)")
+    if settings.is_production:
+        print("  ---------------------------------------------------------------")
+        return
     print("\n  Sign in with any seeded email, for example:")
     print("    owner@pouchwale.com          (Super Admin)")
     print("    shail.patel@pouchwale.com    (Admin)")
     print("    navya.rupawat@pouchwale.com  (Manager, BDE team)")
     print("    parth.fulvani@pouchwale.com  (BDE)")
-    print(f"\n  Password for every seeded account: {settings.SEED_PASSWORD}")
-    print("  Every account must change it at first sign-in.")
+    # The password itself is not echoed: it is already in backend/.env, and
+    # terminal output ends up in logs and screenshots.
+    print("\n  Password for every seeded account: the SEED_PASSWORD value in backend/.env")
+    if settings.SEED_FORCE_PASSWORD_CHANGE:
+        print("  Every account must change it at first sign-in.")
     print("  ---------------------------------------------------------------")
 
 
-def run(*, skip_sap: bool = False) -> None:
+def run(*, skip_sap: bool = False, skip_users: bool = False) -> None:
+    """Seed everything this environment allows.
+
+    In production only teams, departments and settings are seeded: no roster
+    accounts (users come from `app.seeds.bootstrap_admin` and the admin UI)
+    and no SAP import (the running app's SAP sync owns that).
+    """
     print(f"seeding {settings.safe_database_url}")
+    production = settings.is_production
     with SessionLocal() as db:
         teams = seed_teams(db)
         seed_departments(db)
-        seed_users(db, teams)
+        if production:
+            print("  users:        skipped (production - use app.seeds.bootstrap_admin)")
+        elif skip_users:
+            print("  users:        skipped (--skip-users)")
+        else:
+            seed_users(db, teams)
+            assigned = assign_missing_usernames(db)
+            if assigned:
+                print(f"  usernames:    {len(assigned)} assigned")
         seed_settings(db)
-        if not skip_sap:
+        if production:
+            print("  customers:    skipped (production - SAP sync imports them)")
+        elif not skip_sap:
             seed_sap_customers(db)
         db.commit()
         summarise(db)
@@ -245,9 +292,35 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="allow --reset-passwords against a non-SQLite database",
+        help="allow --reset-passwords against a non-SQLite database (never production)",
+    )
+    parser.add_argument(
+        "--skip-users", action="store_true", help="do not create roster accounts"
+    )
+    parser.add_argument(
+        "--allow-production",
+        action="store_true",
+        help="permit running with ENV=production (teams, departments and "
+        "settings only - never users)",
     )
     args = parser.parse_args(argv)
+
+    if settings.is_production:
+        if args.reset_passwords:
+            print(
+                "Refusing: --reset-passwords never runs in production.",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.allow_production:
+            print(
+                "Refusing to seed with ENV=production.\n"
+                "  Pass --allow-production to seed teams, departments and settings\n"
+                "  only. Accounts are never seeded in production; create the first\n"
+                "  administrator with: python -m app.seeds.bootstrap_admin",
+                file=sys.stderr,
+            )
+            return 1
 
     # Fail with a clear message rather than a missing-table traceback.
     from sqlalchemy import inspect
@@ -273,11 +346,15 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
+        if not settings.SEED_PASSWORD.strip():
+            print("Refusing: SEED_PASSWORD is not set.", file=sys.stderr)
+            return 1
+
         with SessionLocal() as db:
             count = reset_passwords(db)
             db.commit()
         print(
-            f"Reset {count} account(s) to the seed password: {settings.SEED_PASSWORD}"
+            f"Reset {count} account(s) to the seed password (SEED_PASSWORD in backend/.env)."
         )
         print(
             "Every account must change it at next sign-in."
@@ -287,7 +364,11 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 0
 
-    run(skip_sap=args.skip_sap)
+    try:
+        run(skip_sap=args.skip_sap, skip_users=args.skip_users)
+    except SeedRefused as exc:
+        print(f"Refusing: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

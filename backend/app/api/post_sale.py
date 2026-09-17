@@ -19,9 +19,9 @@ guess everyone had to work around later.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, timedelta
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from fastapi import APIRouter
 
@@ -48,7 +48,18 @@ class PostSaleRow(BaseModel):
     mobile: Phone = Field(default=None)
     email: str | None = Field(default=None, max_length=255)
     invoice_date: date | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @field_validator("invoice_date")
+    @classmethod
+    def _plausible_invoice_date(cls, value: date | None) -> date | None:
+        # A typo'd year (0226, 2226) would otherwise make an account askable
+        # forever or never. Eligibility runs from this date.
+        if value is not None and not (
+            date(2000, 1, 1) <= value <= date.today() + timedelta(days=366)
+        ):
+            raise ValueError("invoice_date is outside the plausible range.")
+        return value
 
 
 class SyncBody(BaseModel):
@@ -60,7 +71,7 @@ class ResolveBody(BaseModel):
 
 
 @router.post("/sync")
-def sync(payload: SyncBody, _: AdminUser, db: DbSession) -> dict:
+def sync(payload: SyncBody, actor: AdminUser, db: DbSession) -> dict:
     """Bring a batch of post-sale rows in.
 
     Idempotent per `external_ref`, so a nightly sync can run twice without
@@ -68,7 +79,7 @@ def sync(payload: SyncBody, _: AdminUser, db: DbSession) -> dict:
     stored as UNMATCHED rather than attached to a best guess.
     """
     result = post_sale_service.sync_rows(
-        db, [row.model_dump() for row in payload.rows]
+        db, [row.model_dump() for row in payload.rows], actor_id=actor.id
     )
     db.commit()
     return result.as_dict()
@@ -105,10 +116,10 @@ def unmatched(_: AdminUser, db: DbSession) -> list[dict]:
 
 @router.post("/resolve/{record_id}", response_model=Message)
 def resolve(
-    record_id: uuid.UUID, payload: ResolveBody, _: AdminUser, db: DbSession
+    record_id: uuid.UUID, payload: ResolveBody, actor: AdminUser, db: DbSession
 ) -> Message:
     """Attach an unmatched row to the lead a person identified."""
-    record = post_sale_service.resolve(db, record_id, payload.lead_id)
+    record = post_sale_service.resolve(db, record_id, payload.lead_id, actor_id=actor.id)
     if record is None:
         raise not_found("No such post-sale record, or that lead is not converted.")
     db.commit()

@@ -144,13 +144,28 @@ def visible_user_ids(db: Session, actor: User) -> set[uuid.UUID] | _All:
     return {actor.id}
 
 
-def can_view_user(db: Session, actor: User, target_id: uuid.UUID) -> bool:
-    scope = visible_user_ids(db, actor)
+def can_view_user(
+    db: Session,
+    actor: User,
+    target_id: uuid.UUID,
+    *,
+    scope: set[uuid.UUID] | _All | None = None,
+) -> bool:
+    """`scope` may be passed in when the caller already computed
+    visible_user_ids for this actor (e.g. once for a whole listing)."""
+    if scope is None:
+        scope = visible_user_ids(db, actor)
     return scope is ALL or target_id in scope
 
 
 # -------------------------------------------------------------- Rule 1
-def can_act_on(db: Session, actor: User, target: User) -> bool:
+def can_act_on(
+    db: Session,
+    actor: User,
+    target: User,
+    *,
+    scope: set[uuid.UUID] | _All | None = None,
+) -> bool:
     """May `actor` edit, reset, deactivate, re-role or re-parent `target`?
 
     "Act on" also covers reassigning a lead away from them and opening their
@@ -162,7 +177,7 @@ def can_act_on(db: Session, actor: User, target: User) -> bool:
     """
     if actor.id == target.id:
         return False
-    if not can_view_user(db, actor, target.id):
+    if not can_view_user(db, actor, target.id, scope=scope):
         return False
     if rank(target) < rank(actor):
         return False                      # the target outranks the actor
@@ -183,7 +198,7 @@ def actionable_user_ids(db: Session, actor: User) -> set[uuid.UUID]:
         candidates = db.query(User).all()
     else:
         candidates = db.query(User).filter(User.id.in_(scope)).all()
-    return {u.id for u in candidates if can_act_on(db, actor, u)}
+    return {u.id for u in candidates if can_act_on(db, actor, u, scope=scope)}
 
 
 # -------------------------------------------------------------- Rule 2

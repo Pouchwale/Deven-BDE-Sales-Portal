@@ -37,12 +37,40 @@ function titleFor(pathname: string): string {
 /**
  * The authenticated shell.
  *
- * The guard is client-side because the session is a bearer token in
- * localStorage, which the server never sees. The API is the real boundary —
- * this only decides what to render, and every endpoint re-checks
- * independently.
+ * The guard is client-side: every page is a client component. The API is the
+ * real boundary — this only decides what to render, and every endpoint
+ * re-checks independently.
+ *
+ * The providers mount only once a usable session is known. Mounted earlier,
+ * the notification poll fired while signed out and every visit to a portal
+ * URL without a session logged a 401 before the redirect to /login.
  */
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user) {
+      router.replace("/login");
+    } else if (user.must_change_password) {
+      // The API returns 403 PASSWORD_CHANGE_REQUIRED for everything else, so
+      // there is nothing useful to render until this is done.
+      router.replace("/set-password");
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user || user.must_change_password) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center">
+        <div className="flex items-center gap-2.5 text-sm text-muted">
+          <Spinner />
+          Loading your portal…
+        </div>
+      </div>
+    );
+  }
+
   return (
     <NotificationsProvider>
       <ChatProvider>
@@ -53,8 +81,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 }
 
 function PortalShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-  const router = useRouter();
+  const { user } = useAuth();
   const pathname = usePathname();
   const [navOpen, setNavOpen] = useState(false);
   const { unread } = useNotifications();
@@ -68,17 +95,6 @@ function PortalShell({ children }: { children: React.ReactNode }) {
    * preference that ought to survive a navigation and a reload.
    */
   const [navCollapsed, toggleNav] = useNavCollapsed();
-
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.replace("/login");
-    } else if (user.must_change_password) {
-      // The API returns 403 PASSWORD_CHANGE_REQUIRED for everything else, so
-      // there is nothing useful to render until this is done.
-      router.replace("/set-password");
-    }
-  }, [user, loading, router]);
 
   // The drawer closes from the nav links themselves (Sidebar passes onClose
   // to every one), so there is no need to watch the pathname for it.
@@ -103,16 +119,9 @@ function PortalShell({ children }: { children: React.ReactNode }) {
     };
   }, [navOpen]);
 
-  if (loading || !user || user.must_change_password) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center">
-        <div className="flex items-center gap-2.5 text-sm text-muted">
-          <Spinner />
-          Loading your portal…
-        </div>
-      </div>
-    );
-  }
+  // PortalLayout renders this only with a signed-in user; a sign-out makes it
+  // swap back to the loading screen, so this is just the type narrowing.
+  if (!user) return null;
 
   return (
     <div className="min-h-dvh">
@@ -122,22 +131,21 @@ function PortalShell({ children }: { children: React.ReactNode }) {
         open={navOpen}
         collapsed={navCollapsed}
         onClose={() => setNavOpen(false)}
+        onToggleCollapsed={toggleNav}
       />
       <div
         className={cn(
           // Matches the sidebar's own transition so the page and the panel
           // move together instead of the content snapping into place.
           "transition-[padding] duration-250 ease-out",
-          navCollapsed ? "lg:pl-0" : "lg:pl-64",
+          navCollapsed ? "lg:pl-[76px]" : "lg:pl-64",
         )}
       >
         <Topbar
           user={user}
           title={titleFor(pathname)}
           navOpen={navOpen}
-          navCollapsed={navCollapsed}
           onOpenNav={() => setNavOpen(true)}
-          onToggleNav={toggleNav}
         />
         {/* Keyed on the route so the entrance replays on every navigation —
             without the key React would reuse the element and the animation

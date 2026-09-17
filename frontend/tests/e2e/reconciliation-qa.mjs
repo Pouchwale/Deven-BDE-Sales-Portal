@@ -7,9 +7,15 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const API = "http://localhost:8000";
-const PASSWORD = "ChangeMe@123";
+import {
+  APP,
+  BROWSER_CHANNEL,
+  apiCall,
+  apiLogin,
+  requireSeedPassword,
+} from "./support/session.mjs";
+
+const PASSWORD = requireSeedPassword();
 
 const ROLES = [
   { who: "Portal Owner", email: "owner@pouchwale.com" },
@@ -41,23 +47,16 @@ function check(label, condition, detail = "") {
 }
 
 async function apiFor(email) {
-  const res = await fetch(`${API}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: PASSWORD }),
-  });
-  const body = await res.json();
-  const token = body.access_token;
+  const { auth, status } = await apiLogin(email, PASSWORD);
+  if (!auth) throw new Error(`could not sign in as ${email} (status ${status})`);
   const get = async (path) => {
-    const r = await fetch(`${API}${path}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    return r.ok ? r.json() : null;
+    const r = await apiCall(auth, path);
+    return r.status >= 200 && r.status < 300 ? r.body : null;
   };
   return { get };
 }
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch({ channel: BROWSER_CHANNEL });
 
 for (const { who, email } of ROLES) {
   console.log(`\n=== ${who} ===`);
@@ -77,9 +76,9 @@ for (const { who, email } of ROLES) {
   await page.fill("#email", email);
   await page.fill("#password", PASSWORD);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/(dashboard|change-password)/, { timeout: 20000 });
+  await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 20000 });
 
-  if (page.url().includes("change-password")) {
+  if (page.url().includes("set-password")) {
     console.log("    (forced password change — skipping, not touching it)");
     await context.close();
     continue;
@@ -152,7 +151,8 @@ for (const { who, email } of ROLES) {
   check(`leads page reports total ${stats.total}`,
     showsNumber(leadText, stats.total));
 
-  const real = consoleErrors.filter((e) => !/favicon|404 \(Not Found\)/i.test(e));
+  // 401 (Unauthorized): the signed-out session probe on /login, by design.
+  const real = consoleErrors.filter((e) => !/favicon|404 \(Not Found\)|401 \(Unauthorized\)/i.test(e));
   check("no console errors", real.length === 0, real.slice(0, 2).join(" | "));
 
   await context.close();

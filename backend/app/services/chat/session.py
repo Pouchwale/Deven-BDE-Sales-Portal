@@ -34,6 +34,15 @@ from app.services.chat.registry import ToolContext
 
 logger = logging.getLogger(__name__)
 
+#: Tool calls run from ONE model reply. `CHAT_MAX_TOOL_CALLS` bounds the number
+#: of rounds; without this a single reply asking for fifty lookups would run
+#: all fifty. Calls past the ceiling still get a (refusal) result.
+MAX_TOOL_CALLS_PER_REPLY = 5
+
+#: Arguments larger than this are not persisted - no real tool takes anywhere
+#: near it (the biggest is a 120-character search term).
+MAX_STORED_ARGUMENT_CHARS = 2000
+
 # Wording shown while a tool runs. Keyed by tool name so the UI can say
 # something specific instead of a generic spinner.
 TOOL_LABELS = {
@@ -133,18 +142,43 @@ def answer(
             # results will reference, or the next request is rejected.
             messages.append(provider.assistant_turn(reply))
 
-            for call in reply.tool_calls:
+            for position, call in enumerate(reply.tool_calls):
+                if position >= MAX_TOOL_CALLS_PER_REPLY:
+                    # Over the per-reply ceiling: not run, not audited as a
+                    # read, but still ANSWERED - a call id without a result
+                    # desynchronises the conversation.
+                    messages.append(
+                        provider.tool_result(
+                            call,
+                            _payload(
+                                {
+                                    "ok": False,
+                                    "error": {
+                                        "code": "TOO_MANY_TOOL_CALLS",
+                                        "message": (
+                                            "Too many lookups in one step. Answer "
+                                            "with what you already have."
+                                        ),
+                                    },
+                                }
+                            ),
+                        )
+                    )
+                    continue
+
                 yield Event(
                     "tool",
                     {
-                        "name": call.name,
+                        "name": call.name[:60],
                         "label": TOOL_LABELS.get(call.name, "Looking that up…"),
                     },
                 )
 
                 outcome = chat_tools.dispatch(tool_ctx, call.name, call.arguments)
                 chat_tools.record_invocation(tool_ctx, call.name, outcome)
-                invocations.append((call.name, dict(call.arguments), outcome))
+                invocations.append(
+                    (call.name[:60], _stored_arguments(call.name, call.arguments), outcome)
+                )
 
                 # Cards for the things worth acting on. Sent to the browser of
                 # the person who asked and nowhere else: they are not written
@@ -205,6 +239,26 @@ def answer(
             "usage": {"input": usage_in, "output": usage_out},
         },
     )
+
+
+def _stored_arguments(name: str, arguments: dict) -> dict:
+    """What `chat_tool_calls.arguments` keeps for one call.
+
+    The arguments are the model's own text. For a registered tool they are
+    small and already bounded by its schema; for an invented tool name, or an
+    argument blob far larger than any real tool takes, they are dropped rather
+    than persisted verbatim - a hostile model should not be able to write
+    arbitrary payloads into the database through the audit trail.
+    """
+    if chat_tools.get(name) is None:
+        return {"_omitted": "unknown tool"}
+    try:
+        size = len(json.dumps(arguments, default=str))
+    except (TypeError, ValueError):
+        return {"_omitted": "unserialisable"}
+    if size > MAX_STORED_ARGUMENT_CHARS:
+        return {"_omitted": "too large"}
+    return dict(arguments)
 
 
 def _payload(outcome: dict) -> str:

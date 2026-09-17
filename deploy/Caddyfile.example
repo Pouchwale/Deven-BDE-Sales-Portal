@@ -1,0 +1,80 @@
+# BDE & Sales Portal - Caddy reverse proxy (Caddy v2).
+#
+# One public origin on 443:
+#   /api/*  and /health  -> FastAPI (uvicorn) on 127.0.0.1:8000, directly, so
+#                           the assistant's SSE stream is never buffered
+#   everything else      -> Next.js (`next start`) on 127.0.0.1:3000
+#
+# Copy to C:\caddy\Caddyfile (or wherever caddy.exe lives), replace
+# portal.example.com and the email, then check it:
+#   caddy validate --config C:\caddy\Caddyfile
+#
+# HTTPS is automatic: Caddy obtains and renews a Let's Encrypt certificate when
+# the DNS name points at this machine and ports 80 and 443 are reachable from
+# the internet. Port 80 then only redirects to https. For an intranet-only name
+# replace the automatic certificate with `tls C:/caddy/certs/portal.crt C:/caddy/certs/portal.key`
+# or use `tls internal` (Caddy's own CA - install its root on client PCs).
+{
+	email admin@example.com
+	# Logs of Caddy itself. Keep all logs OUTSIDE the repository.
+	log {
+		output file D:/GP3/logs/caddy/caddy.log {
+			roll_size 20MiB
+			roll_keep 10
+		}
+		level INFO
+	}
+}
+
+portal.example.com {
+	# Access log (JSON). Contains client IPs and paths, never request bodies
+	# or cookies.
+	log {
+		output file D:/GP3/logs/caddy/access.log {
+			roll_size 50MiB
+			roll_keep 14
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	# Largest upload the portal accepts is 10 MB (SAP workbook, feedback
+	# import); 15 MB leaves room for multipart overhead.
+	request_body {
+		max_size 15MB
+	}
+
+	# Compress everything except the SSE stream, which must flush per event.
+	@compressible not path /api/chat/*
+	encode @compressible zstd gzip
+
+	# Security headers are set by the applications themselves (Next.js for
+	# pages, FastAPI for /api), each tuned to its content - notably the page
+	# CSP. The `?` prefix only fills a header in when the upstream did not send
+	# one, so nothing is duplicated or overridden.
+	header {
+		?Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+		-X-Powered-By
+	}
+
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8000 {
+			# Flush every write immediately: required for text/event-stream.
+			flush_interval -1
+			# Caddy sends X-Forwarded-For / -Proto / -Host; uvicorn trusts them
+			# only from 127.0.0.1 (--forwarded-allow-ips) and the backend only
+			# from TRUSTED_PROXIES=127.0.0.1.
+		}
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:3000
+	}
+}

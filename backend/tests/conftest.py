@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import tempfile
 import uuid
+from http.cookiejar import DefaultCookiePolicy
 from pathlib import Path
 
 import pytest
@@ -23,8 +24,11 @@ import pytest
 _TMP_DIR = Path(tempfile.mkdtemp(prefix="bde_portal_test_"))
 os.environ.setdefault("TEST_DATABASE_URL", f"sqlite:///{_TMP_DIR / 'test.db'}")
 os.environ["DATABASE_URL"] = os.environ["TEST_DATABASE_URL"]
+os.environ["ENV"] = "test"
 os.environ["SEED_PASSWORD"] = "TestPass@123"
 os.environ["SECRET_KEY"] = "test-secret-key-not-used-anywhere-real"
+# A fixed, test-only Fernet key so the Super Admin's password reveal works.
+os.environ["PASSWORD_VIEW_KEY"] = "dGVzdC1vbmx5LWtleS1ub3QtdXNlZC1hbnl3aGVyZSE="
 # Pinned ON regardless of the developer's .env: the forced password change is
 # a behaviour worth keeping under test even while it is switched off for
 # convenience during development.
@@ -123,12 +127,21 @@ def client(db: Session) -> TestClient:
     fastapi_app.dependency_overrides[get_db] = lambda: db
     from app.api.auth import login_limiter
     from app.api.chat import message_limiter
+    from app.api.admin import sap_import_limiter
+    from app.api.dashboard import analytics_limiter
 
     # Both are module-level and per-process, so without this a test fails
     # because of how many requests the tests before it happened to make.
     login_limiter.clear()
     message_limiter.clear()
+    sap_import_limiter.clear()
+    analytics_limiter.clear()
     with TestClient(fastapi_app) as test_client:
+        # No cookie jar. A test that signs in several people must not find
+        # itself silently authenticated as whoever logged in last; every
+        # request states its credentials explicitly (bearer headers from
+        # `sign_in`, or the Cookie header from `browser_login`).
+        test_client.cookies.jar.set_policy(_NoCookies())
         yield test_client
     fastapi_app.dependency_overrides.clear()
 
@@ -141,14 +154,45 @@ def users(db: Session) -> dict[str, User]:
     return {u.name: u for u in db.query(User).all()}
 
 
+class _NoCookies(DefaultCookiePolicy):
+    def set_ok(self, cookie, request) -> bool:  # noqa: ANN001
+        return False
+
+
+def session_secret(response) -> str:  # noqa: ANN001
+    """The raw session secret from a login response's Set-Cookie.
+
+    The JSON body deliberately never carries it."""
+    secret = response.cookies.get(settings.SESSION_COOKIE_NAME)
+    assert secret, "login did not set the session cookie"
+    return secret
+
+
 def token_for(client: TestClient, email: str, password: str = SEED_PASSWORD) -> str:
+    """Sign in and return the session secret, for use as a bearer token."""
     response = client.post("/api/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200, response.text
-    return response.json()["access_token"]
+    return session_secret(response)
 
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def browser_login(
+    client: TestClient, email: str, password: str = SEED_PASSWORD
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Sign in the way the browser does. Returns (cookie_headers, csrf_headers):
+    the first authenticates safe requests; merge both for unsafe ones."""
+    response = client.post("/api/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200, response.text
+    secret = session_secret(response)
+    csrf = response.cookies.get(settings.CSRF_COOKIE_NAME)
+    assert csrf
+    cookie = {
+        "Cookie": f"{settings.SESSION_COOKIE_NAME}={secret}; {settings.CSRF_COOKIE_NAME}={csrf}"
+    }
+    return cookie, {"X-CSRF-Token": csrf}
 
 
 def sign_in(client: TestClient, user: User, password: str = SEED_PASSWORD) -> dict[str, str]:
@@ -280,4 +324,12 @@ def new_email() -> str:
     return f"test-{uuid.uuid4().hex[:10]}@example.com"
 
 
-__all__ = ["SEED_PASSWORD", "auth", "new_email", "sign_in", "token_for"]
+__all__ = [
+    "SEED_PASSWORD",
+    "auth",
+    "browser_login",
+    "new_email",
+    "session_secret",
+    "sign_in",
+    "token_for",
+]

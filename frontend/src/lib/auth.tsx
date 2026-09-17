@@ -10,7 +10,7 @@ import {
   useState,
 } from "react";
 
-import { ApiError, api, getToken, setToken } from "@/lib/api";
+import { ApiError, api, clearLegacyToken } from "@/lib/api";
 import type { User } from "@/types/api";
 
 interface AuthContextValue {
@@ -18,7 +18,8 @@ interface AuthContextValue {
   /** True until the initial /auth/me has settled — routes wait on this
    *  rather than flashing the sign-in page at an authenticated user. */
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<User>;
+  signIn: (identifier: string, password: string) => Promise<User>;
+  /** Ends the session on the server, then returns to the sign-in page. */
   signOut: () => void;
   refresh: () => Promise<void>;
   setUser: (user: User) => void;
@@ -26,24 +27,29 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+/**
+ * The session is an HttpOnly cookie the page cannot see, so "am I signed in"
+ * has exactly one honest answer: ask the server. Nothing about the session is
+ * stored in the browser by this code.
+ */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUserState] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
+    // Older builds kept a bearer token in localStorage. It is useless now and
+    // should not linger on shared machines.
+    clearLegacyToken();
+
     const controller = new AbortController();
 
     async function restore() {
-      if (!getToken()) {
-        setLoading(false);
-        return;
-      }
       try {
         setUserState(await api.auth.me(controller.signal));
       } catch (error) {
-        // An expired or revoked token is the normal case here, not a fault.
-        if (error instanceof ApiError && error.isAuthFailure) setToken(null);
+        // No session, or an expired/revoked one, is the normal case here.
+        if (error instanceof ApiError && error.isAuthFailure) setUserState(null);
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
@@ -53,28 +59,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => controller.abort();
   }, []);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const response = await api.auth.login(email, password);
-    setToken(response.access_token);
+  const signIn = useCallback(async (identifier: string, password: string) => {
+    const response = await api.auth.login(identifier, password);
     setUserState(response.user);
     return response.user;
   }, []);
 
   const signOut = useCallback(() => {
-    setToken(null);
     setUserState(null);
     router.replace("/login");
+    // Idempotent on the server; a failure here (offline, already expired)
+    // must not keep somebody looking at a signed-in screen.
+    api.auth.logout().catch(() => {});
   }, [router]);
 
   const refresh = useCallback(async () => {
-    if (!getToken()) return;
     try {
       setUserState(await api.auth.me());
     } catch (error) {
-      if (error instanceof ApiError && error.isAuthFailure) {
-        setToken(null);
-        setUserState(null);
-      }
+      if (error instanceof ApiError && error.isAuthFailure) setUserState(null);
     }
   }, []);
 

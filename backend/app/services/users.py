@@ -9,21 +9,25 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import authority
 from app.core.constants import ADMIN_ROLES, AuditAction, EntityType, ErrorCode, Role
 from app.core.errors import conflict, forbidden, invalid, not_found
-from app.core.security import generate_password, hash_password
-from app.db.base import utcnow
-from app.models.org import Department, User
+from app.core.passwords import PasswordPolicyError, validate_password
+from app.core.sessions import RevokeReason, revoke_user_sessions
+from app.core import password_vault, usernames
+from app.db.base import as_naive_utc, utcnow
+from app.models.org import Department, Team, User
+from app.models.system import AuditEvent
 from app.services import audit
 
 # Fields worth recording in the audit trail when a user changes.
 _AUDITED_FIELDS = (
     "name",
     "email",
+    "username",
     "phone",
     "title",
     "honorific",
@@ -91,9 +95,73 @@ def _require_email_free(db: Session, email: str, *, exclude: uuid.UUID | None = 
     return normalised
 
 
+def _require_username_free(
+    db: Session, username: str, *, exclude: uuid.UUID | None = None
+) -> str:
+    try:
+        cleaned = usernames.validate_username(username)
+    except usernames.InvalidUsername as exc:
+        raise invalid(str(exc), field="username") from None
+    if usernames.is_taken(db, cleaned, exclude=exclude):
+        raise conflict("That username is already in use.")
+    return cleaned
+
+
+def _check_password(password: str, *, email: str | None, name: str | None) -> str:
+    """The shared policy, turned into the API's 422 with a safe message."""
+    try:
+        return validate_password(password, email=email, name=name)
+    except PasswordPolicyError as exc:
+        raise invalid(str(exc), ErrorCode.VALIDATION_ERROR, field="password") from None
+
+
+def _clean_name(name: str) -> str:
+    cleaned = " ".join((name or "").split())
+    if len(cleaned) < 2:
+        raise invalid("Enter the person's full name.", field="name")
+    return cleaned
+
+
+def _validate_team(db: Session, team_id: uuid.UUID | None) -> None:
+    """A team must exist and still be in use. Same message for both, so the
+    answer is actionable without describing the teams table."""
+    if team_id is None:
+        return
+    team = db.get(Team, team_id)
+    if team is None or not team.is_active:
+        raise invalid("Choose an active team.", field="team_id")
+
+
+def active_super_admin_count(db: Session, *, exclude: uuid.UUID | None = None) -> int:
+    stmt = select(func.count(User.id)).where(
+        User.role == Role.SUPER_ADMIN, User.is_active.is_(True)
+    )
+    if exclude is not None:
+        stmt = stmt.where(User.id != exclude)
+    return int(db.scalar(stmt) or 0)
+
+
+def _require_not_last_super_admin(db: Session, target: User, what: str) -> None:
+    """The installation must always keep one active Super Admin.
+
+    Checked BEFORE the authority rules on purpose, so even an attempt on your
+    own account gets the real reason rather than a generic refusal.
+    """
+    if target.role != Role.SUPER_ADMIN or not target.is_active:
+        return
+    if active_super_admin_count(db, exclude=target.id) == 0:
+        raise conflict(
+            f"You cannot {what} the last active Super Admin. "
+            "Appoint another Super Admin first.",
+            ErrorCode.CONFLICT,
+        )
+
+
 def _validate_manager(
     db: Session, actor: User, subject_id: uuid.UUID | None, manager_id: uuid.UUID | None,
     role: str,
+    *,
+    current_manager_id: uuid.UUID | None = None,
 ) -> None:
     """Check a proposed reporting line: existence, cycles, rank, authority."""
     if manager_id is None:
@@ -102,6 +170,11 @@ def _validate_manager(
     manager = db.get(User, manager_id)
     if manager is None:
         raise invalid("The chosen manager does not exist.")
+    # A NEW line must point at somebody who can still sign in. An unchanged
+    # line is left alone, so editing a deactivated person's phone number does
+    # not fail because their old manager has also left.
+    if not manager.is_active and manager_id != current_manager_id:
+        raise invalid("The chosen manager is deactivated. Choose an active manager.")
 
     # The actor must be able to see and act on the manager, or be that
     # manager themselves - otherwise a manager could park people under
@@ -166,28 +239,39 @@ def create_user(
     honorific: str | None = None,
     manager_id: uuid.UUID | None = None,
     team_id: uuid.UUID | None = None,
+    must_change_password: bool = True,
+    username: str | None = None,
     ip_address: str | None = None,
 ) -> User:
     require_grantable_role(actor, role)                      # Rule 2
+    name = _clean_name(name)
     email = _require_email_free(db, email)
+    username = (
+        _require_username_free(db, username)
+        if username and username.strip()
+        else usernames.suggest_username(db, name=name, email=email, role=str(role))
+    )
+    _check_password(password, email=email, name=name)
+    _validate_team(db, team_id)
     _validate_manager(db, actor, None, manager_id, role)
 
     user = User(
-        name=name.strip(),
+        name=name,
         email=email,
+        username=username,
         phone=phone,
         title=title,
         honorific=str(honorific) if honorific else None,
         role=str(role),
         manager_id=manager_id,
         team_id=team_id,
-        hashed_password=hash_password(password),
-        plain_password=password,
+        hashed_password="",
         is_active=True,
-        # Whoever creates the account knows the password, so the account is
-        # not really the user's until they have set their own.
-        must_change_password=True,
+        # Whoever creates the account knows the password, so by default the
+        # account is not really the user's until they have set their own.
+        must_change_password=bool(must_change_password),
     )
+    password_vault.set_password(user, password)
     db.add(user)
     db.flush()
 
@@ -217,21 +301,49 @@ def update_user(
     That ordering is Rule 3: a manager cannot demote a peer and then act on
     them, because the demotion is itself an act on the peer as they are now.
     """
+    # PATCH semantics: an explicit null for a column that cannot be null means
+    # "leave it alone", never "blank it".
+    for field in ("name", "email", "username", "role", "is_active"):
+        if field in changes and changes[field] is None:
+            del changes[field]
+
+    new_role = str(changes["role"]) if changes.get("role") is not None else target.role
+    role_changing = new_role != target.role
+    deactivating = changes.get("is_active") is False and target.is_active
+
+    if role_changing:
+        _require_not_last_super_admin(db, target, "change the role of")
+    if deactivating:
+        _require_not_last_super_admin(db, target, "deactivate")
+
     require_actionable(db, actor, target)                    # Rule 1
 
     before = snapshot(target)
-    new_role = str(changes["role"]) if changes.get("role") is not None else target.role
 
-    if "role" in changes and changes["role"] is not None and new_role != target.role:
+    if role_changing:
         require_grantable_role(actor, new_role)              # Rule 2
 
-    if "email" in changes and changes["email"]:
+    if "name" in changes:
+        changes["name"] = _clean_name(str(changes["name"]))
+
+    if "email" in changes:
         changes["email"] = _require_email_free(
             db, str(changes["email"]), exclude=target.id
         )
 
+    if "username" in changes:
+        changes["username"] = _require_username_free(
+            db, str(changes["username"]), exclude=target.id
+        )
+
+    if "team_id" in changes and changes["team_id"] != target.team_id:
+        _validate_team(db, changes["team_id"])
+
     if "manager_id" in changes:
-        _validate_manager(db, actor, target.id, changes["manager_id"], new_role)
+        _validate_manager(
+            db, actor, target.id, changes["manager_id"], new_role,
+            current_manager_id=target.manager_id,
+        )
     elif "role" in changes and target.manager_id is not None:
         # A promotion can invalidate an existing line, e.g. promoting a BDE to
         # MANAGER under a MANAGER is fine, but to ADMIN under a MANAGER is not.
@@ -253,15 +365,23 @@ def update_user(
         if field in _AUDITED_FIELDS:
             setattr(target, field, str(value) if field == "role" else value)
 
-    if changes.get("is_active") is False:
+    if deactivating:
         target.deactivated_at = utcnow()
-    elif changes.get("is_active") is True:
+    elif changes.get("is_active") is True and target.deactivated_at is not None:
         target.deactivated_at = None
 
     db.flush()
 
     after = snapshot(target)
     changed_before, changed_after = audit.diff(before, after)
+
+    # New permissions (or no access at all) apply from the very next request,
+    # not whenever their old session happens to expire.
+    if "is_active" in changed_after and after["is_active"] is False:
+        revoke_user_sessions(db, target.id, RevokeReason.DEACTIVATED)
+    elif "role" in changed_after:
+        revoke_user_sessions(db, target.id, RevokeReason.ROLE_CHANGED)
+
     if changed_after:
         action = AuditAction.USER_UPDATED
         if "role" in changed_after:
@@ -317,35 +437,35 @@ def reset_password(
     db: Session,
     actor: User,
     target: User,
-    new_password: str | None = None,
+    new_password: str,
     *,
     must_change: bool = True,
     ip_address: str | None = None,
-) -> tuple[User, str]:
-    """Set somebody's password, and hand the plaintext back to the caller ONCE.
+) -> User:
+    """Set somebody's password. Nothing about the password is returned.
 
-    WHY IT IS RETURNED. An administrator's real question is "what is this
-    person's password" - and that question has no answer, because passwords
-    are stored as one-way bcrypt hashes and the plaintext is kept nowhere.
-    The nearest true thing is "set one and read it once", so the value that
-    was just set is returned to the caller and to nobody else.
+    Sign-in checks a one-way bcrypt hash. The only other copy is the
+    encrypted one the Super Admin may reveal (core/password_vault.py);
+    nothing is in a response, a log or the audit trail. The administrator typed the new one, so they already have
+    it. The trail records THAT a password was set, by whom, and whether a
+    change is forced - never the secret itself.
 
-    It is still never logged and never audited: the trail records THAT a
-    password was set, by whom, and whether a change is forced - never the
-    secret itself. Anyone who can read the audit log must not thereby be able
-    to sign in as the people in it.
-
-    `new_password=None` generates a strong one, which is the path to prefer:
-    a password nobody had to invent is a password nobody has reused.
+    Setting a password also clears any sign-in lockout and ends every session
+    the person holds, so a compromised session dies with the old password.
     """
     require_actionable(db, actor, target)
-    password = new_password or generate_password()
-    target.hashed_password = hash_password(password)
-    target.plain_password = password
-    target.must_change_password = must_change
-    # Invalidates every session the target currently holds.
+    if not new_password:
+        raise invalid("Enter the new password.", field="new_password")
+    _check_password(new_password, email=target.email, name=target.name)
+
+    password_vault.set_password(target, new_password)
+    target.must_change_password = bool(must_change)
     target.password_changed_at = utcnow()
+    target.failed_login_count = 0
+    target.locked_until = None
     db.flush()
+
+    ended = revoke_user_sessions(db, target.id, RevokeReason.PASSWORD_RESET)
 
     audit.record(
         db,
@@ -353,10 +473,125 @@ def reset_password(
         action=AuditAction.PASSWORD_RESET,
         entity_type=EntityType.USER,
         entity_id=target.id,
-        after={"must_change_password": must_change, "generated": new_password is None},
+        after={"must_change_password": bool(must_change), "sessions_revoked": ended},
         ip_address=ip_address,
     )
-    return target, password
+    return target
+
+
+# ------------------------------------------------------------- lockout
+def reveal_password(
+    db: Session, actor: User, target: User, *, ip_address: str | None = None
+) -> str | None:
+    """Decrypt the target's stored copy for a Super Admin, and audit the look.
+
+    The route already requires SUPER_ADMIN; this re-checks so no other caller
+    can reach the secret by accident.
+    """
+    if actor.role != Role.SUPER_ADMIN:
+        raise forbidden("Only the Super Admin can view passwords.")
+    password = password_vault.decrypt(target.password_encrypted)
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action=AuditAction.PASSWORD_VIEWED,
+        entity_type=EntityType.USER,
+        entity_id=target.id,
+        after={"available": password is not None},
+        ip_address=ip_address,
+    )
+    return password
+
+
+def is_locked(user: User) -> bool:
+    return user.locked_until is not None and as_naive_utc(user.locked_until) > utcnow()
+
+
+def unlock_user(
+    db: Session, actor: User, target: User, *, ip_address: str | None = None
+) -> User:
+    """Clear a sign-in lockout and its failure counter. Idempotent."""
+    require_actionable(db, actor, target)
+    before = {
+        "failed_login_count": target.failed_login_count,
+        "locked_until": target.locked_until.isoformat() if target.locked_until else None,
+    }
+    target.failed_login_count = 0
+    target.locked_until = None
+    db.flush()
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action=AuditAction.ACCOUNT_UNLOCKED,
+        entity_type=EntityType.USER,
+        entity_id=target.id,
+        before=before,
+        after={"failed_login_count": 0, "locked_until": None},
+        ip_address=ip_address,
+    )
+    return target
+
+
+# ------------------------------------------------------------ activity
+#: Keys that never leave the server in an activity listing, whatever an older
+#: audit row happens to contain.
+_ACTIVITY_REDACTED = frozenset(
+    {
+        "hashed_password", "password", "new_password", "old_password",
+        "confirm_password", "plain_password", "token", "access_token",
+        "token_hash", "session_token",
+    }
+)
+
+
+def _redact(payload: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not payload:
+        return None
+    return {k: v for k, v in payload.items() if k.lower() not in _ACTIVITY_REDACTED}
+
+
+def user_activity(
+    db: Session, target: User, *, page: int, page_size: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Audit events about this person, or performed by them, newest first."""
+    stmt = select(AuditEvent).where(
+        or_(
+            (AuditEvent.entity_type == EntityType.USER) & (AuditEvent.entity_id == target.id),
+            AuditEvent.actor_user_id == target.id,
+        )
+    )
+    total = int(db.scalar(select(func.count()).select_from(stmt.subquery())) or 0)
+    rows = (
+        db.execute(
+            stmt.order_by(AuditEvent.created_at.desc(), AuditEvent.id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+    actor_ids = {row.actor_user_id for row in rows if row.actor_user_id}
+    names = (
+        dict(db.execute(select(User.id, User.name).where(User.id.in_(actor_ids))).all())
+        if actor_ids
+        else {}
+    )
+    items = [
+        {
+            "id": row.id,
+            "action": row.action,
+            "actor_user_id": row.actor_user_id,
+            "actor_name": names.get(row.actor_user_id),
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "before": _redact(row.before),
+            "after": _redact(row.after),
+            "ip_address": row.ip_address,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+    return items, total
 
 
 # --------------------------------------------------------- permanent delete
@@ -366,6 +601,9 @@ def reset_password(
 _DELETION_IGNORED = {
     ("notifications", "user_id"),
     ("chat_conversations", "user_id"),
+    # Sign-in bookkeeping (ON DELETE CASCADE). Without this, merely having
+    # been issued a session made an account undeletable.
+    ("user_sessions", "user_id"),
 }
 
 
@@ -421,6 +659,14 @@ def delete_user(
             ErrorCode.FORBIDDEN,
             actor_role=actor.role,
         )
+    if target.role == Role.SUPER_ADMIN and active_super_admin_count(
+        db, exclude=target.id
+    ) == 0:
+        raise conflict(
+            "You cannot delete the last active Super Admin. "
+            "Appoint another Super Admin first.",
+            ErrorCode.CONFLICT,
+        )
     # Also refuses self-deletion: `can_act_on` returns False for yourself.
     require_actionable(db, actor, target)
 
@@ -452,8 +698,7 @@ def delete_user(
 def change_own_password(
     db: Session, user: User, new_password: str, *, ip_address: str | None = None
 ) -> User:
-    user.hashed_password = hash_password(new_password)
-    user.plain_password = new_password
+    password_vault.set_password(user, new_password)
     user.must_change_password = False
     user.password_changed_at = utcnow()
     db.flush()
@@ -498,7 +743,12 @@ def deactivate_user(
 
     Reports must be re-parented first, either in an earlier call or by
     passing `reassign_reports_to` here.
+
+    Nothing attached to them is touched: leads, references, feedback,
+    notifications and the audit trail all keep pointing at this row. Their
+    sessions end immediately.
     """
+    _require_not_last_super_admin(db, target, "deactivate")
     require_actionable(db, actor, target)
 
     if reassign_reports_to is not None:
@@ -521,6 +771,7 @@ def deactivate_user(
     target.is_active = False
     target.deactivated_at = utcnow()
     db.flush()
+    revoke_user_sessions(db, target.id, RevokeReason.DEACTIVATED)
 
     audit.record(
         db,

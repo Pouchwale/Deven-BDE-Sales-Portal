@@ -3,6 +3,11 @@
 import { Info, Lock, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT,
+  passwordProblem,
+} from "@/components/admin/passwordPolicy";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { RoleBadge } from "@/components/ui/Badge";
@@ -10,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { InlineError } from "@/components/ui/Feedback";
 import { Field, Input } from "@/components/ui/Form";
-import { api, errorMessage, setToken } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { useToast } from "@/lib/toast";
@@ -35,6 +40,8 @@ export default function ProfilePage() {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   if (!user) return null;
+
+  const nextProblem = passwordProblem(next);
 
   async function saveProfile(event: React.FormEvent) {
     event.preventDefault();
@@ -62,9 +69,8 @@ export default function ProfilePage() {
 
     setSavingPassword(true);
     try {
-      await api.auth.changePassword(current, next);
-      // Every token issued before the change is now invalid, including ours.
-      setToken(null);
+      await api.auth.changePassword(current, next, confirm);
+      // The server ended every session, this one included.
       toast.success("Password changed", "Sign in again with your new password.");
       signOut();
     } catch (cause) {
@@ -146,12 +152,12 @@ export default function ProfilePage() {
             </CardBody>
           </Card>
 
-          {/* -------------------------------------------- password */}
-          <Card>
+          {/* -------------------------------------------- security */}
+          <Card id="security" className="scroll-mt-20">
             <CardHeader className="block">
-              <CardTitle>Password</CardTitle>
+              <CardTitle>Security · Change password</CardTitle>
               <CardDescription>
-                Changing it signs you out of every device immediately.
+                Changing it signs you out of every device immediately, this one included.
               </CardDescription>
             </CardHeader>
             <CardBody>
@@ -169,14 +175,21 @@ export default function ProfilePage() {
                 </Field>
 
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="New password" htmlFor="new-password" required hint="At least 8 characters.">
+                  <Field
+                    label="New password"
+                    htmlFor="new-password"
+                    required
+                    error={nextProblem}
+                    hint={PASSWORD_POLICY_HINT.replace("the person's", "your")}
+                  >
                     <Input
                       id="new-password"
                       type="password"
                       autoComplete="new-password"
                       required
-                      minLength={8}
+                      minLength={PASSWORD_MIN_LENGTH}
                       value={next}
+                      invalid={Boolean(nextProblem)}
                       onChange={(event) => setNext(event.target.value)}
                     />
                   </Field>
@@ -205,7 +218,7 @@ export default function ProfilePage() {
                     type="submit"
                     variant="secondary"
                     loading={savingPassword}
-                    disabled={!current || next.length < 8 || next !== confirm}
+                    disabled={!current || !next || Boolean(nextProblem) || next !== confirm}
                   >
                     Change password
                   </Button>

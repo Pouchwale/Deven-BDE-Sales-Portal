@@ -27,8 +27,11 @@ from app.core import authority
 from app.core.authority import ALL, _All
 from app.core.constants import ROLE_RANK, AuditAction, EntityType, Role
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.models.org import User
 from app.services import audit
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +224,10 @@ def dispatch(ctx: ToolContext, name: str, arguments: dict) -> dict:
     spec = get(name)
 
     if spec is None:
-        return _failure("UNKNOWN_TOOL", f"There is no tool called {name!r}.", started)
+        # The name is the model's own text: bounded before it is echoed.
+        return _failure(
+            "UNKNOWN_TOOL", f"There is no tool called {str(name)[:60]!r}.", started
+        )
 
     if authority.rank(ctx.actor) > spec.min_rank:
         return _failure(
@@ -262,12 +268,23 @@ def dispatch(ctx: ToolContext, name: str, arguments: dict) -> dict:
         )
 
     try:
-        result = spec.handler(ctx, params)
+        # A SAVEPOINT per tool: tools only read, but a database error inside
+        # one would otherwise leave the whole request's transaction aborted
+        # (PostgreSQL refuses every later statement), taking the audit rows
+        # and the conversation itself down with a single failed read.
+        with ctx.db.begin_nested():
+            result = spec.handler(ctx, params)
     except ToolError as error:
         return _failure(error.code, error.message, started)
-    except Exception:  # noqa: BLE001 - the model must not see internals
+    except Exception as error:  # noqa: BLE001 - the model must not see internals
         # Deliberately swallowed: a stack trace, table name or driver message
-        # reaching the model is a leak. The server log keeps the detail.
+        # reaching the model is a leak. The server log records which tool
+        # failed and how - the exception TYPE only, because a driver message
+        # can quote the query's parameters, which are portal data.
+        logger.error(
+            "Chat tool %s failed: %s", name, type(error).__name__,
+            extra={"tool": name, "user_id": str(ctx.actor.id)},
+        )
         return _failure(
             "TOOL_FAILED", "That data could not be read just now.", started
         )
@@ -305,7 +322,7 @@ def record_invocation(ctx: ToolContext, name: str, outcome: dict) -> None:
         action=AuditAction.CHAT_TOOL_INVOKED,
         entity_type=EntityType.CHAT,
         after={
-            "tool": name,
+            "tool": str(name)[:60],
             "ok": outcome["ok"],
             "rows": outcome.get("row_count"),
             "error": (outcome.get("error") or {}).get("code"),

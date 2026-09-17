@@ -5,8 +5,9 @@ import uuid
 
 from fastapi import APIRouter, Query
 
+from app.core.constants import ReferenceStatus
 from app.core.deps import DbSession, SuperAdminUser, VisibilityScope
-from app.schemas.common import Page
+from app.schemas.common import MAX_PAGE, MAX_PAGE_SIZE, Page
 from sqlalchemy import select
 
 from app.models.org import Department
@@ -65,18 +66,18 @@ def list_customers(
     db: DbSession,
     scope: VisibilityScope,
     search: str | None = Query(default=None, max_length=120),
-    reference_status: str | None = Query(default=None),
+    reference_status: ReferenceStatus | None = Query(default=None),
     owner_id: uuid.UUID | None = Query(default=None),
     unowned_only: bool = Query(default=False),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=25, ge=1, le=200),
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
+    page_size: int = Query(default=25, ge=1, le=MAX_PAGE_SIZE),
 ) -> Page[CustomerOut]:
     rows, total = customer_service.list_customers(
         db,
         actor,
         scope,
         search=search,
-        reference_status=reference_status,
+        reference_status=str(reference_status) if reference_status else None,
         owner_id=owner_id,
         unowned_only=unowned_only,
         page=page,

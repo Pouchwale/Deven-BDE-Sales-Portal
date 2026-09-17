@@ -8,6 +8,10 @@
  */
 import { chromium } from "playwright-core";
 
+import { APP, requireSeedPassword } from "./support/session.mjs";
+
+const PASSWORD = requireSeedPassword();
+
 let pass = 0, fail = 0;
 const check = (n, ok, d = "") => {
   if (ok) { pass++; console.log(`  ok   ${n}`); }
@@ -37,9 +41,9 @@ await page.addInitScript(() => {
   window.__listenerCount = () => listeners.resize.length;
 });
 
-await page.goto("http://localhost:3000/login", { waitUntil: "domcontentloaded" });
+await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
 await page.fill('input[type="email"]', "owner@pouchwale.com");
-await page.fill('input[type="password"]', "ChangeMe@123");
+await page.fill('input[type="password"]', PASSWORD);
 await page.click('button[type="submit"]');
 await page.waitForURL(/\/dashboard/, { timeout: 25000 });
 await page.waitForTimeout(1500);

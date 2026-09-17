@@ -2,29 +2,49 @@
 
 import { useEffect, useState } from "react";
 
-import { Eye, EyeOff, KeyRound, Pencil, ShieldAlert } from "lucide-react";
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_POLICY_HINT,
+  passwordProblem,
+} from "@/components/admin/passwordPolicy";
+import { PasswordReveal } from "@/components/admin/PasswordReveal";
 
-import { ActiveBadge, RoleBadge } from "@/components/ui/Badge";
+import { History, KeyRound, Lock, Pencil, Unlock } from "lucide-react";
+
+import { ActiveBadge, Badge, RoleBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { InlineError } from "@/components/ui/Feedback";
+import { EmptyState, ErrorState, InlineError, TableSkeleton } from "@/components/ui/Feedback";
 import { Field, Input, Select } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Modal";
+import { Pagination } from "@/components/ui/Pagination";
 import { ApiError, api, errorMessage } from "@/lib/api";
+import { formatDateTime, formatRelative } from "@/lib/format";
 import { ERROR_HINTS, roleLabel } from "@/lib/roles";
 import { useToast } from "@/lib/toast";
-import type { User, UserDetail } from "@/types/api";
+import { useAsync } from "@/lib/useAsync";
+import type { User, UserActivityItem, UserDetail } from "@/types/api";
+
+/** Status shown for an account: Locked wins over Active, Inactive over both. */
+export function AccountStatusBadge({ user }: { user: UserDetail }) {
+  if (!user.is_active) return <ActiveBadge active={false} />;
+  if (user.is_locked)
+    return (
+      <Badge className="border-transparent bg-danger-soft text-danger">
+        <Lock className="size-3" aria-hidden />
+        Locked
+      </Badge>
+    );
+  return <ActiveBadge active />;
+}
 
 /* -------------------------------------------------------- set password */
 /**
- * Set somebody's password.
+ * Change somebody's password.
  *
  * WHY NOTHING HERE EVER SHOWS AN EXISTING PASSWORD. They are stored as
  * one-way bcrypt hashes: the plaintext is not kept, so no screen and no
- * endpoint can produce it. Making it viewable would mean storing it
- * reversibly, which turns one database leak into every employee's password.
- *
- * The new one is generated IN THE BROWSER when you ask for one, so the value
- * an administrator hands over never has to travel back from the server.
+ * endpoint can produce it. The administrator types the new one twice; it is
+ * sent once, never echoed back, and never displayed afterwards.
  */
 export function ResetPasswordDialog({
   open,
@@ -43,31 +63,10 @@ export function ResetPasswordDialog({
   const [mustChange, setMustChange] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const [copied, setCopied] = useState(false);
 
-  const tooShort = password.length > 0 && password.length < 8;
+  const problem = passwordProblem(password);
   const mismatch = confirm.length > 0 && confirm !== password;
-  const ready = password.length >= 8 && confirm === password;
-
-  function generate() {
-    // No 0/O/1/l/I: these get read aloud and typed by somebody else.
-    const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const bytes = new Uint32Array(16);
-    crypto.getRandomValues(bytes);
-    const made = Array.from(bytes, (n) => alphabet[n % alphabet.length]).join("");
-    setPassword(made);
-    setConfirm(made);
-    setCopied(false);
-  }
-
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(password);
-      setCopied(true);
-    } catch {
-      toast.info("Select the password and copy it manually.");
-    }
-  }
+  const ready = password.length > 0 && !problem && confirm === password;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -75,8 +74,11 @@ export function ResetPasswordDialog({
     setSaving(true);
     setError(null);
     try {
-      const result = await api.users.setPassword(user.id, password, mustChange);
-      toast.success("Password set", result.message);
+      const result = await api.users.setPassword(user.id, password, confirm, mustChange);
+      // Nothing about the password is kept in this component once it closes.
+      setPassword("");
+      setConfirm("");
+      toast.success("Password changed", result.message);
       onDone();
       onClose();
     } catch (cause) {
@@ -91,15 +93,15 @@ export function ResetPasswordDialog({
       open={open}
       onClose={onClose}
       size="sm"
-      title={`Set a password for ${user?.name ?? ""}`}
-      description="Their current sessions end immediately. Copy it before you close this - it cannot be shown again."
+      title={`Change password for ${user?.name ?? ""}`}
+      description="Their current sessions end immediately and any sign-in lockout is cleared."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button type="submit" form="reset-form" loading={saving} disabled={!ready}>
-            Set password
+            Change password
           </Button>
         </>
       }
@@ -109,44 +111,34 @@ export function ResetPasswordDialog({
           label="New password"
           htmlFor="new-password"
           required
-          hint={tooShort ? "At least 8 characters." : undefined}
+          error={problem}
+          hint={PASSWORD_POLICY_HINT}
         >
-          <div className="flex items-stretch gap-2">
-            <Input
-              id="new-password"
-              type="text"
-              required
-              minLength={8}
-              autoComplete="new-password"
-              value={password}
-              onChange={(event) => {
-                setPassword(event.target.value);
-                setCopied(false);
-              }}
-            />
-            <Button type="button" variant="secondary" onClick={generate}>
-              Generate
-            </Button>
-            {password ? (
-              <Button type="button" variant="secondary" onClick={copy}>
-                {copied ? "Copied" : "Copy"}
-              </Button>
-            ) : null}
-          </div>
+          <Input
+            id="new-password"
+            type="password"
+            required
+            minLength={PASSWORD_MIN_LENGTH}
+            autoComplete="new-password"
+            value={password}
+            invalid={Boolean(problem)}
+            onChange={(event) => setPassword(event.target.value)}
+          />
         </Field>
 
         <Field
-          label="Confirm password"
+          label="Confirm new password"
           htmlFor="confirm-password"
           required
-          hint={mismatch ? "The two passwords do not match." : undefined}
+          error={mismatch ? "The two passwords do not match." : null}
         >
           <Input
             id="confirm-password"
-            type="text"
+            type="password"
             required
             autoComplete="new-password"
             value={confirm}
+            invalid={mismatch}
             onChange={(event) => setConfirm(event.target.value)}
           />
         </Field>
@@ -159,20 +151,12 @@ export function ResetPasswordDialog({
             onChange={(event) => setMustChange(event.target.checked)}
           />
           <span>
-            Make them choose their own at next sign-in
+            Require a password change at next sign-in
             <span className="mt-0.5 block text-[12px] text-subtle">
               Recommended. A password two people know is not a password.
             </span>
           </span>
         </label>
-
-        <p className="flex items-start gap-2 rounded-lg border border-warning/25 bg-warning-soft px-3 py-2 text-[12.5px] leading-relaxed text-warning">
-          <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          <span>
-            The portal stores passwords as one-way hashes, so it can never show you
-            an existing one - not here, and not anywhere else.
-          </span>
-        </p>
 
         {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
       </form>
@@ -426,16 +410,17 @@ export function UserDetailPanel({
   onSetPassword,
   onDeactivate,
   onReactivate,
+  canRevealPassword = false,
 }: {
   user: UserDetail | null;
+  /** Super Admin only: the password row with the eye button. */
+  canRevealPassword?: boolean;
   onClose: () => void;
   onEdit: () => void;
   onSetPassword: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
 }) {
-  const [showPassword, setShowPassword] = useState(false);
-
   return (
     <Modal
       open={user !== null}
@@ -452,7 +437,7 @@ export function UserDetailPanel({
             <>
               <Button variant="secondary" onClick={onSetPassword}>
                 <KeyRound className="size-3.5" aria-hidden />
-                Set password
+                Change password
               </Button>
               <Button onClick={onEdit}>
                 <Pencil className="size-3.5" aria-hidden />
@@ -468,20 +453,26 @@ export function UserDetailPanel({
           <dl className="grid grid-cols-[9rem_1fr] gap-x-3 gap-y-2 text-[13px]">
             <dt className="text-subtle">Email</dt>
             <dd className="break-all font-medium text-content">{user.email}</dd>
-            <dt className="text-subtle">Password</dt>
-            <dd className="inline-flex items-center gap-2">
-              <span className="font-mono font-medium text-content">
-                {showPassword ? (user.plain_password || "ChangeMe@123") : "••••••••"}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="text-subtle hover:text-content transition-colors p-0.5 rounded focus:outline-none"
-                title={showPassword ? "Hide password" : "Show password"}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-              </button>
+            <dt className="text-subtle">Username</dt>
+            <dd className="font-medium text-content">{user.username ?? "—"}</dd>
+            {canRevealPassword ? (
+              <>
+                <dt className="text-subtle">Password</dt>
+                <dd className="min-w-0">
+                  <PasswordReveal userId={user.id} />
+                </dd>
+              </>
+            ) : null}
+            <dt className="text-subtle">Last sign-in</dt>
+            <dd className="text-content" title={formatDateTime(user.last_login_at)}>
+              {user.last_login_at ? formatRelative(user.last_login_at) : "Never"}
+            </dd>
+            <dt className="text-subtle">Password set</dt>
+            <dd className="text-content">
+              {user.password_changed_at ? formatDateTime(user.password_changed_at) : "—"}
+              {user.must_change_password ? (
+                <span className="ml-1.5 text-[12px] text-warning">(change required)</span>
+              ) : null}
             </dd>
             <dt className="text-subtle">Role</dt>
             <dd><RoleBadge role={user.role} /></dd>
@@ -496,7 +487,12 @@ export function UserDetailPanel({
             <dt className="text-subtle">Status</dt>
             <dd>
               <span className="inline-flex items-center gap-2">
-                <ActiveBadge active={user.is_active} />
+                <AccountStatusBadge user={user} />
+                {user.is_locked ? (
+                  <span className="text-[12px] text-subtle">
+                    until {formatDateTime(user.locked_until)}
+                  </span>
+                ) : null}
                 {user.can_act_on ? (
                   <button
                     type="button"
@@ -511,6 +507,175 @@ export function UserDetailPanel({
           </dl>
         </div>
       ) : null}
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------------------- activity */
+const ACTIVITY_PAGE_SIZE = 20;
+
+function humaniseAction(action: string): string {
+  const text = action.replace(/_/g, " ").toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function describeChange(event: UserActivityItem): string | null {
+  const after = event.after ?? {};
+  const keys = Object.keys(after);
+  if (keys.length === 0) return null;
+  return keys
+    .slice(0, 4)
+    .map((key) => {
+      const value = after[key];
+      const shown =
+        value === null || value === undefined
+          ? "—"
+          : typeof value === "object"
+            ? "…"
+            : String(value);
+      return `${key.replace(/_/g, " ")}: ${shown.length > 40 ? `${shown.slice(0, 40)}…` : shown}`;
+    })
+    .join(" · ");
+}
+
+/**
+ * One person's audit trail: what was done to their account and what they
+ * did. The server strips any password material before it gets here.
+ */
+export function UserActivityDialog({
+  user,
+  onClose,
+}: {
+  user: UserDetail;
+  onClose: () => void;
+}) {
+  const [page, setPage] = useState(1);
+  const activity = useAsync(
+    (signal) =>
+      api.users.activity(user.id, { page, page_size: ACTIVITY_PAGE_SIZE }, signal),
+    [user.id, page],
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="lg"
+      title={`Activity — ${user.name}`}
+      description="Changes to this account and actions this person took, newest first."
+      footer={
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
+      }
+    >
+      {activity.error ? (
+        <ErrorState error={activity.error} onRetry={activity.reload} />
+      ) : activity.loading && !activity.data ? (
+        <TableSkeleton rows={6} columns={3} />
+      ) : activity.data && activity.data.items.length === 0 ? (
+        <EmptyState icon={History} title="No activity yet" />
+      ) : activity.data ? (
+        <div className="-mx-1">
+          <ul className="divide-y divide-line">
+            {activity.data.items.map((event) => {
+              const about = event.entity_id === user.id && event.entity_type === "USER";
+              const detail = describeChange(event);
+              return (
+                <li key={event.id} className="px-1 py-2.5">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                    <span className="text-[13px] font-medium text-content">
+                      {humaniseAction(event.action)}
+                    </span>
+                    <span
+                      className="text-[12px] text-subtle"
+                      title={formatDateTime(event.created_at)}
+                    >
+                      {formatRelative(event.created_at)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[12px] text-muted">
+                    {about
+                      ? `By ${event.actor_user_id === user.id ? "themselves" : (event.actor_name ?? "system")}`
+                      : `On ${(event.entity_type ?? "record").toLowerCase()}`}
+                    {event.ip_address ? ` · ${event.ip_address}` : ""}
+                  </p>
+                  {detail ? (
+                    <p className="mt-0.5 break-words text-[12px] text-subtle">{detail}</p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          <Pagination
+            page={activity.data.page}
+            pageSize={activity.data.page_size}
+            total={activity.data.total}
+            onPageChange={setPage}
+            noun="events"
+          />
+        </div>
+      ) : null}
+    </Modal>
+  );
+}
+
+/* --------------------------------------------------------------- unlock */
+export function UnlockUserDialog({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: UserDetail;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.users.unlock(user.id);
+      toast.success("Account unlocked", `${user.name} can try signing in again.`);
+      onDone();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="sm"
+      title={`Unlock ${user.name}?`}
+      description="Clears the sign-in lockout and the failed-attempt counter. Their password does not change."
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancel
+          </Button>
+          <Button onClick={submit} loading={saving}>
+            <Unlock className="size-3.5" aria-hidden />
+            Unlock
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-2 text-[13px] text-muted">
+        <p>
+          {user.failed_login_count} failed sign-in attempt
+          {user.failed_login_count === 1 ? "" : "s"}
+          {user.locked_until ? `, locked until ${formatDateTime(user.locked_until)}` : ""}.
+        </p>
+        <p>If you did not expect this lockout, consider changing their password instead.</p>
+        {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
+      </div>
     </Modal>
   );
 }

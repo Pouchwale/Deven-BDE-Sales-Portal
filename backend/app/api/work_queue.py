@@ -29,7 +29,7 @@ def work_queue(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    bucket: str | None = Query(
+    bucket: LeadOrigin | None = Query(
         default=None,
         description="ASSIGNED_BY_HEAD or REFERENCE_FOLLOWUP; omit for both",
     ),

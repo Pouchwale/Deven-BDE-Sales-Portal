@@ -13,6 +13,7 @@ from fastapi import APIRouter, File, Query, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.dashboard import check_analytics_rate
 from app.core import authority
 from app.core.authority import ALL
 from app.core.constants import AlertStatus, ErrorCode, FeedbackImportSource
@@ -32,7 +33,7 @@ from app.models.feedback import (
     FeedbackImport,
 )
 from app.models.org import Department, User
-from app.schemas.common import Message, Page
+from app.schemas.common import MAX_LIST_ITEMS, MAX_PAGE, MAX_PAGE_SIZE, Message, Page
 from app.schemas.feedback import (
     AlertAssign,
     AlertOut,
@@ -47,6 +48,7 @@ from app.schemas.feedback import (
     PendingFeedbackItem,
 )
 from app.services import (
+    customer_source,
     feedback_analysis,
     feedback_import,
     feedback_requests,
@@ -58,6 +60,8 @@ router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 # 10 MB, per plan v3 s8.1.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+#: The pending queue is paged in the browser; this only bounds the response.
+MAX_PENDING_ITEMS = 5_000
 
 
 def _action_scope_or_403(db: Session, actor):
@@ -182,6 +186,7 @@ def analysis(actor: CurrentUser, db: DbSession) -> FeedbackAnalysis:
     department is at 2.4 has no way to understand the complaint they are about
     to receive. The alerts list stays narrow, because an alert is a job.
     """
+    check_analytics_rate(actor, "feedback-analysis")
     alert_scope = authority.feedback_department_scope(actor)
     scope = ALL
     config = runtime_settings.feedback_config(db)
@@ -222,6 +227,7 @@ def alerts(
     actor: CurrentUser,
     db: DbSession,
     include_resolved: bool = Query(default=False),
+    limit: int = Query(default=200, ge=1, le=MAX_LIST_ITEMS),
 ) -> list[AlertOut]:
     scope = _action_scope_or_403(db, actor)
     names = _department_names(db)
@@ -232,7 +238,9 @@ def alerts(
     if scope is not ALL:
         stmt = stmt.where(FeedbackAlert.department_id.in_(scope))
 
-    rows = list(db.execute(stmt.order_by(FeedbackAlert.opened_at.desc())).scalars())
+    rows = list(
+        db.execute(stmt.order_by(FeedbackAlert.opened_at.desc()).limit(limit)).scalars()
+    )
     users = _user_names(db, {a.assigned_to_user_id for a in rows if a.assigned_to_user_id})
     return [_with_assignee(alert, names, users) for alert in rows]
 
@@ -259,7 +267,10 @@ def assign_alert(
 
 @router.get("/pending", response_model=list[PendingFeedbackItem])
 def pending_requests(
-    actor: CurrentUser, db: DbSession, scope: VisibilityScope
+    actor: CurrentUser,
+    db: DbSession,
+    scope: VisibilityScope,
+    limit: int = Query(default=MAX_PENDING_ITEMS, ge=1, le=MAX_PENDING_ITEMS),
 ) -> list[PendingFeedbackItem]:
     """Everyone still owed a feedback ask.
 
@@ -267,10 +278,8 @@ def pending_requests(
     ago and who have no completed response on file. The same population
     Reference Tracking works from - see `/feedback/pending/summary`.
     """
-    return [
-        PendingFeedbackItem(**item)
-        for item in feedback_analysis.pending_requests(db, actor, scope)
-    ]
+    items = feedback_analysis.pending_requests(db, actor, scope)
+    return [PendingFeedbackItem(**item) for item in items[:limit]]
 
 
 @router.get("/pending/summary")
@@ -315,8 +324,8 @@ def list_feedback(
     #: hunting for; narrowing a fetched page in the browser would only find
     #: the unhappy customers who happened to be on it.
     rating: str | None = Query(default=None, pattern="^(LOW|MID|HIGH)$"),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=25, ge=1, le=200),
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
+    page_size: int = Query(default=25, ge=1, le=MAX_PAGE_SIZE),
 ) -> Page[FeedbackOut]:
     """Every response, to everyone signed in - see `analysis` for why.
 
@@ -425,15 +434,27 @@ def import_history(_: AdminUser, db: DbSession) -> list[ImportSummary]:
 
 
 async def _read_upload(file: UploadFile) -> bytes:
-    content = await file.read()
+    """Bounded read + content check. The client filename is only a label."""
+    # .xls (BIFF) cannot be read by anything installed; refused up front.
+    name = customer_source.safe_display_name(file.filename)
+    suffix = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    if suffix not in (".xlsx", ".csv"):
+        raise invalid("Upload the Google Forms export as .xlsx or .csv.")
+    # One byte past the limit is enough to know it is too big, without
+    # holding an arbitrarily large body in memory.
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
         raise ApiError(
             ErrorCode.VALIDATION_ERROR,
             f"That file is larger than {MAX_UPLOAD_BYTES // (1024 * 1024)}MB.",
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
         )
-    if not (file.filename or "").lower().endswith((".xlsx", ".xls", ".csv")):
-        raise invalid("Upload the Google Forms export as .xlsx or .csv.")
+    try:
+        customer_source.check_bytes(content, suffix)
+    except customer_source.SourceFileRejected as exc:
+        raise ApiError(
+            ErrorCode.VALIDATION_ERROR, str(exc), status_code=exc.status_code
+        ) from None
     return content
 
 
@@ -449,7 +470,7 @@ async def import_dry_run(
     content = await _read_upload(file)
     config = runtime_settings.feedback_config(db)
     result = feedback_import.dry_run(
-        db, content, file.filename or "upload", scale_max=config["scale_max"]
+        db, content, customer_source.safe_display_name(file.filename), scale_max=config["scale_max"]
     )
     return result.as_dict()
 
@@ -466,7 +487,7 @@ async def import_commit(
     config = runtime_settings.feedback_config(db)
 
     preview = feedback_import.dry_run(
-        db, content, file.filename or "upload", scale_max=config["scale_max"]
+        db, content, customer_source.safe_display_name(file.filename), scale_max=config["scale_max"]
     )
     if not preview.can_commit:
         raise ApiError(
@@ -480,7 +501,7 @@ async def import_commit(
     result = feedback_import.commit(
         db,
         content,
-        file.filename or "upload",
+        customer_source.safe_display_name(file.filename),
         actor=actor,
         scale_max=config["scale_max"],
         create_missing_departments=create_missing_departments,

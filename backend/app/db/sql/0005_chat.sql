@@ -64,7 +64,10 @@ CREATE TABLE chat_tool_calls (
     arguments    {{JSON}},
     row_count    INTEGER,
 
-    ok           {{BOOL}}     NOT NULL DEFAULT 1,
+    -- TRUE, not 1: SQLite accepts either, PostgreSQL refuses an integer
+    -- default on a boolean. Corrected in place (2026-09) because the old text
+    -- could never have run on PostgreSQL, so no PostgreSQL database holds it.
+    ok           {{BOOL}}     NOT NULL DEFAULT TRUE,
     error_code   VARCHAR(40),
     duration_ms  INTEGER,
 

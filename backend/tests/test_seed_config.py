@@ -117,3 +117,90 @@ def test_an_empty_env_value_does_not_blank_the_default(db) -> None:
     assert settings.GOOGLE_SYNC_URL == ""
     # Seeded from roster.DEFAULT_SETTINGS, not from the blank environment.
     assert db.get(AppSetting, "company.name").value == "Pouchwale"
+
+
+# ------------------------------------------------------- bootstrap_admin
+BOOT_PASSWORD = "Harbour-Lantern-2026x"
+
+
+def test_bootstrap_refuses_while_an_active_super_admin_exists(db) -> None:
+    from app.seeds.bootstrap_admin import BootstrapRefused, bootstrap
+
+    before = db.scalar(select(func.count(User.id)))
+    with pytest.raises(BootstrapRefused, match="already exists"):
+        bootstrap(db, email="second.owner@example.com", name="Second Owner",
+                  password=BOOT_PASSWORD)
+    assert db.scalar(select(func.count(User.id))) == before
+
+
+def test_bootstrap_cli_exits_non_zero_when_a_super_admin_exists(capsys, monkeypatch) -> None:
+    from app.seeds import bootstrap_admin
+
+    monkeypatch.setenv(bootstrap_admin.PASSWORD_ENV_VAR, BOOT_PASSWORD)
+    assert bootstrap_admin.main(["--email", "x.owner@example.com", "--name", "X Owner"]) == 1
+    out = capsys.readouterr()
+    assert "already exists" in out.err
+    assert BOOT_PASSWORD not in out.out + out.err
+
+
+def test_bootstrap_creates_the_first_super_admin(db) -> None:
+    from app.core.security import verify_password
+    from app.models.system import AuditEvent
+    from app.seeds.bootstrap_admin import bootstrap
+
+    # A fresh installation: no active Super Admin (rolled back afterwards).
+    for owner in db.execute(select(User).where(User.role == Role.SUPER_ADMIN)).scalars():
+        owner.is_active = False
+    db.flush()
+
+    user = bootstrap(db, email="First.Owner@Example.com", name="First Owner",
+                     password=BOOT_PASSWORD)
+    assert user.role == Role.SUPER_ADMIN
+    assert user.email == "first.owner@example.com"
+    assert user.is_active is True
+    assert user.must_change_password is False
+    assert user.hashed_password != BOOT_PASSWORD
+    assert verify_password(BOOT_PASSWORD, user.hashed_password)
+
+    event = db.execute(
+        select(AuditEvent).where(AuditEvent.entity_id == user.id)
+    ).scalars().one()
+    assert event.action == "USER_CREATED"
+    assert BOOT_PASSWORD not in str(event.after)
+
+    # Once is enough: a second run is refused.
+    from app.seeds.bootstrap_admin import BootstrapRefused
+
+    with pytest.raises(BootstrapRefused):
+        bootstrap(db, email="another@example.com", name="Another Owner",
+                  password=BOOT_PASSWORD)
+
+
+@pytest.mark.parametrize("password", ["", "x" * 73])
+def test_bootstrap_refuses_an_empty_or_over_long_password(db, password: str) -> None:
+    from app.seeds.bootstrap_admin import BootstrapRefused, bootstrap
+
+    for owner in db.execute(select(User).where(User.role == Role.SUPER_ADMIN)).scalars():
+        owner.is_active = False
+    db.flush()
+    with pytest.raises(BootstrapRefused) as caught:
+        bootstrap(db, email="policy.owner@example.com", name="Policy Owner", password=password)
+    if password:
+        assert password not in str(caught.value)
+
+
+def test_bootstrap_does_not_take_over_an_existing_email(db, users) -> None:
+    from app.seeds.bootstrap_admin import BootstrapRefused, bootstrap
+
+    for owner in db.execute(select(User).where(User.role == Role.SUPER_ADMIN)).scalars():
+        owner.is_active = False
+    db.flush()
+    with pytest.raises(BootstrapRefused, match="already exists"):
+        bootstrap(db, email=users["Shail Patel"].email, name="Shail Patel",
+                  password=BOOT_PASSWORD)
+
+
+def test_seed_password_has_no_default_in_code() -> None:
+    from app.core.config import Settings
+
+    assert Settings.model_fields["SEED_PASSWORD"].default == ""

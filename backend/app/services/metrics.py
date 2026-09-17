@@ -28,8 +28,9 @@ moment a salesperson marked the deal won.
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 from datetime import date
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
@@ -69,26 +70,32 @@ def scoped_leads(scope: set[uuid.UUID] | _All) -> Select:
 def lead_metrics(db: Session, scope: set[uuid.UUID] | _All) -> dict:
     """Lead counts by stage, within scope.
 
-    One query per stage against one statement, so "total" is by construction
-    the sum of the parts rather than a separately-derived number that can
-    drift from them.
+    ONE grouped query over one statement, so "total" is by construction the
+    sum of the parts rather than a separately-derived number that can drift
+    from them. (This used to be thirteen COUNT queries - one per stage plus
+    total/open/closed - on every dashboard and Assigned Leads load.)
     """
-    base = scoped_leads(scope).subquery()
+    stmt = (
+        scoped_leads(scope)
+        .with_only_columns(Lead.status, func.count(Lead.id))
+        .group_by(Lead.status)
+    )
+    per_status: dict[str, int] = {
+        str(status): count for status, count in db.execute(stmt).all()
+    }
 
-    def count_where(*conditions) -> int:
-        stmt = select(func.count()).select_from(base)
-        for condition in conditions:
-            stmt = stmt.where(condition)
-        return db.scalar(stmt) or 0
+    def total_of(statuses) -> int:
+        return sum(per_status.get(str(status), 0) for status in statuses)
 
     by_stage = {
-        member.value.lower(): count_where(base.c.status == member.value)
-        for member in LeadStatus
+        member.value.lower(): per_status.get(member.value, 0) for member in LeadStatus
     }
     return {
-        "total": count_where(),
-        "open": count_where(base.c.status.in_(OPEN_LEAD_STATUSES)),
-        "closed": count_where(base.c.status.in_(CLOSED_LEAD_STATUSES)),
+        # Every row, including any status outside the current enum (retired
+        # names), exactly as the unfiltered COUNT(*) counted them.
+        "total": sum(per_status.values()),
+        "open": total_of(OPEN_LEAD_STATUSES),
+        "closed": total_of(CLOSED_LEAD_STATUSES),
         **by_stage,
     }
 
@@ -197,20 +204,26 @@ def post_sale_population(
     problems and a bare 0 cannot tell them apart.
     """
     day = today or date.today()
-    converted = converted_lead_ids(db, scope)
+
+    memo = db.info.get(_POPULATION_MEMO)
+    memo_key = ("ALL" if scope is ALL else frozenset(scope), day)
+    if memo is not None and memo_key in memo:
+        cached = memo[memo_key]
+        # A fresh list: callers are free to mutate what they get back.
+        return {**cached, "eligible_lead_ids": list(cached["eligible_lead_ids"])}
+
+    converted, ready = _converted_with_ready_dates(db, scope)
     if not converted:
-        return {
+        result = {
             "converted": 0,
             "eligible": 0,
             "waiting": 0,
             "awaiting_sync": 0,
             "eligible_lead_ids": [],
         }
-
-    # The sheet's Reference Date where there is one; invoice + 10 days
-    # otherwise. One helper, so the queue, the counts and the ask guard
-    # cannot answer this differently.
-    ready = reference_ready_dates(db, converted)
+        if memo is not None:
+            memo[memo_key] = result
+        return {**result, "eligible_lead_ids": []}
 
     eligible_ids, waiting = [], 0
     for lead_id in converted:
@@ -222,13 +235,90 @@ def post_sale_population(
         else:
             waiting += 1
 
-    return {
+    result = {
         "converted": len(converted),
         "eligible": len(eligible_ids),
         "waiting": waiting,
         "awaiting_sync": len(converted) - len(eligible_ids) - waiting,
         "eligible_lead_ids": eligible_ids,
     }
+    if memo is not None:
+        memo[memo_key] = {**result, "eligible_lead_ids": list(eligible_ids)}
+    return result
+
+
+def _converted_with_ready_dates(
+    db: Session, scope: set[uuid.UUID] | _All
+) -> tuple[list[uuid.UUID], dict[uuid.UUID, date]]:
+    """The won leads in scope, and each one's reference-ready day.
+
+    The same answer as `converted_lead_ids` followed by
+    `reference_ready_dates`, but the second query JOINS to the scoped won
+    leads instead of sending every converted lead id back to the database as
+    a bound-parameter IN list - a list that grew with the won book and, on
+    SQLite, fails outright past its variable limit. (A LEFT JOIN from the
+    leads side was tried first; SQLite planned it as a nested scan, 20x
+    slower.) The EARLIEST matched invoice still decides the day, exactly as
+    `reference_ready_dates` documents.
+    """
+    converted = converted_lead_ids(db, scope)
+    if not converted:
+        return [], {}
+
+    stmt = (
+        select(
+            PostSaleRecord.lead_id,
+            PostSaleRecord.invoice_date,
+            PostSaleRecord.reference_date,
+        )
+        .join(Lead, Lead.id == PostSaleRecord.lead_id)
+        .where(
+            PostSaleRecord.status == "MATCHED",
+            PostSaleRecord.invoice_date.is_not(None),
+            Lead.status == LeadStatus.CONVERTED,
+        )
+    )
+    if scope is not ALL:
+        # Never empty here: an empty scope has no converted leads, above.
+        stmt = stmt.where(Lead.assigned_to_user_id.in_(scope))
+
+    first: dict[uuid.UUID, tuple[date, date | None]] = {}
+    for lead_id, invoice_date, reference_date in db.execute(stmt).all():
+        current = first.get(lead_id)
+        if current is None or invoice_date < current[0]:
+            first[lead_id] = (invoice_date, reference_date)
+
+    ready: dict[uuid.UUID, date] = {}
+    for lead_id, (invoice_date, reference_date) in first.items():
+        day = eligibility.ready_on(invoice_date, reference_date)
+        if day is not None:
+            ready[lead_id] = day
+    return converted, ready
+
+
+#: `Session.info` key for the population memo - see `memoized_population`.
+_POPULATION_MEMO = "metrics.post_sale_population"
+
+
+@contextmanager
+def memoized_population(db: Session) -> Iterator[None]:
+    """Compute `post_sale_population` once per scope inside this block.
+
+    The dashboard asks for the caller's population twice in one request (the
+    reference KPIs and the feedback-pending count), and each ask was a full
+    pass over the won book. Deliberately an explicit,
+    read-only block rather than a session-wide cache: nothing inside it
+    writes, so a memoised answer cannot go stale, and code outside it always
+    reads the database afresh.
+    """
+    if _POPULATION_MEMO in db.info:  # nested: the outer block owns the memo
+        yield
+        return
+    db.info[_POPULATION_MEMO] = {}
+    try:
+        yield
+    finally:
+        db.info.pop(_POPULATION_MEMO, None)
 
 
 # ------------------------------------------------------------- reference

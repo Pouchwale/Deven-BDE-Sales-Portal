@@ -39,6 +39,7 @@ venv/
 # ------------------------------------------------------------ Node / Next
 node_modules/
 .next/
+.next-*/
 out/
 build/
 *.tsbuildinfo
@@ -61,3 +62,14 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# ------------------------------------------------------ deploy / backups
+# Filled-in production env files, never the *.example templates. Backups are
+# written outside the repo, but a stray dump must never be committed either.
+deploy/**/*.env
+!deploy/**/*.example
+*.dump
+*.dump.sha256
+*.dump.partial
+/backups/
+/logs/

@@ -7,17 +7,21 @@
  * test responses behind, and the dashboard reported them as the company's
  * work. The preflight now refuses any backend that does not report ENV=e2e.
  *
- * Start a disposable backend on its own database file (PowerShell):
+ * Start a disposable backend on its own database (PowerShell):
  *
  *   cd backend
- *   $env:ENV = "e2e"; $env:DATABASE_URL = "sqlite:///./e2e_portal.db"
+ *   $env:ENV = "e2e"; $env:DATABASE_URL = "<a throwaway database>"
+ *   $env:SEED_PASSWORD = "<a password you choose>"
  *   python -m app.db.migrate upgrade
  *   python -m app.seeds.seed
  *   python -m uvicorn app.main:app --port 8000
  *
  * and the frontend as usual:  npm run build && npm start   (port 3000)
  *
- *   node tests/e2e/run.mjs
+ *   E2E_SEED_PASSWORD=<same password> node tests/e2e/run.mjs
+ *
+ * E2E_APP_URL / E2E_API_URL override the two base URLs. There is no default
+ * password - see support/session.mjs.
  *
  * This run resets one account's password (Parth's) in order to exercise the
  * admin-reset -> forced-change loop. Afterwards, put everything back with:
@@ -34,12 +38,12 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright-core";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const SHOTS = join(HERE, "screenshots");
+import { API, APP, apiLogin as login, pageApi, requireSeedPassword } from "./support/session.mjs";
 
-const APP = process.env.E2E_APP_URL ?? "http://localhost:3000";
-const API = process.env.E2E_API_URL ?? "http://localhost:8000";
-const SEED_PASSWORD = process.env.E2E_SEED_PASSWORD ?? "ChangeMe@123";
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SHOTS = process.env.E2E_SCREENSHOT_DIR ?? join(HERE, "screenshots");
+
+const SEED_PASSWORD = requireSeedPassword();
 
 // Used for the forced-change journey only.
 const TEMP_PASSWORD = "TempReset@2026";
@@ -148,12 +152,20 @@ function feedbackCsv() {
 }
 
 async function apiLogin(email, password) {
-  const response = await fetch(`${API}/api/auth/login`, {
+  const result = await login(email, password);
+  return result.auth ? result.body : null;
+}
+
+/** As the admin signed in on `page`: set `email`'s password (forced change on). */
+async function resetPasswordAs(page, email, password) {
+  const people = (await pageApi(page, "/api/users?page_size=200")).body?.items ?? [];
+  const target = people.find((person) => person.email === email);
+  if (!target) return 404;
+  const response = await pageApi(page, `/api/users/${target.id}/reset-password`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ new_password: password, confirm_password: password }),
   });
-  return response.ok ? await response.json() : null;
+  return response.status;
 }
 
 /* ------------------------------------------------------------- checks */
@@ -234,10 +246,15 @@ async function main() {
     check("root redirects an anonymous visitor to /login", page.url().includes("/login"));
     await shoot(page, "01-login");
 
-    // The seeded shortcuts sign in directly — no typing, no second step.
-    await page.click(`[data-testid="quick-signin"][data-email="${ADMIN}"]`);
+    // No one-click shortcuts any more: the sign-in page carries no seeded
+    // accounts and no credentials. Type them, like anybody else.
+    check(
+      "the sign-in page offers no quick sign-in shortcuts",
+      (await page.locator('[data-testid="quick-signin"]').count()) === 0,
+    );
+    await signIn(page, ADMIN, SEED_PASSWORD);
     await page.waitForURL("**/dashboard", { timeout: 15000 });
-    check("one-click sign-in lands straight on the dashboard", true);
+    check("sign-in lands straight on the dashboard", true);
     check(
       "no forced password change while it is switched off",
       !page.url().includes("/set-password"),
@@ -300,13 +317,7 @@ async function main() {
       "an admin has no Customers link",
       (await page.locator('#portal-nav a[href="/customers"]').count()) === 0,
     );
-    const adminBlocked = await page.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const response = await fetch(`${apiUrl}/api/customers`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return response.status;
-    }, API);
+    const adminBlocked = (await pageApi(page, "/api/customers")).status;
     check("and the API refuses them directly", adminBlocked === 403, `got ${adminBlocked}`);
 
     const bookContext = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -410,25 +421,7 @@ async function main() {
     // enforcement itself still matters: an admin reset must always demand a
     // new password. Trigger it the way it happens in real life.
     section("6. An admin reset forces the next sign-in to set a password");
-    const resetStatus = await page.evaluate(
-      async ({ apiUrl, email, password }) => {
-        const token = window.localStorage.getItem("bde_portal_token");
-        const list = await fetch(`${apiUrl}/api/users?search=${encodeURIComponent(email)}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((response) => response.json());
-        const target = list.items[0];
-        const response = await fetch(`${apiUrl}/api/users/${target.id}/reset-password`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ new_password: password }),
-        });
-        return response.status;
-      },
-      { apiUrl: API, email: BDE, password: TEMP_PASSWORD },
-    );
+    const resetStatus = await resetPasswordAs(page, BDE, TEMP_PASSWORD);
     check("admin resets a BDE's password", resetStatus === 200, `status ${resetStatus}`);
 
     /* --------------------------------------- 6b. reference tracking */
@@ -534,12 +527,7 @@ async function main() {
     // raised a second time — correct behaviour — so asserting on the import
     // banner made this pass or fail depending on whether the walkthrough had
     // been run before.
-    const openAlerts = await page.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      return fetch(`${apiUrl}/api/feedback/alerts`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then((response) => response.json());
-    }, API);
+    const openAlerts = (await pageApi(page, "/api/feedback/alerts")).body ?? [];
     // Production is what THIS import drives below the threshold. Deliberately
     // not "and nothing else": sample feedback, if it is loaded, puts Dispatch
     // under too, and that is real data doing exactly what it should.
@@ -614,17 +602,10 @@ async function main() {
     // Start from a known state. A previous run that stopped early may have
     // left the form link set, and then "the portal explains the link is
     // missing" would fail for a reason that has nothing to do with the code.
-    await book2.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      await fetch(`${apiUrl}/api/admin/settings`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ values: { "company.feedback_form_url": "" } }),
-      });
-    }, API);
+    await pageApi(book2, "/api/admin/settings", {
+      method: "PATCH",
+      body: JSON.stringify({ values: { "company.feedback_form_url": "" } }),
+    });
     await book2.reload({ waitUntil: "domcontentloaded" });
     await book2.waitForSelector('[data-testid="open-send-request"]', { timeout: 15000 });
 
@@ -767,32 +748,18 @@ async function main() {
     await bookCtx2.unroute("**://wa.me/**");
 
     // Put the original settings back - this walkthrough runs against real data.
-    await book2.evaluate(
-      async ({ apiUrl, template }) => {
-        const token = window.localStorage.getItem("bde_portal_token");
-        await fetch(`${apiUrl}/api/admin/settings`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            values: {
-              "message.feedback_whatsapp": template,
-              "company.feedback_form_url": "",
-            },
-          }),
-        });
-      },
-      { apiUrl: API, template: originalTemplate },
-    );
-    const restored = await book2.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const body = await fetch(`${apiUrl}/api/admin/settings`, {
-        headers: { Authorization: `Bearer ${token}` },
-      }).then((response) => response.json());
-      return body.values["message.feedback_whatsapp"];
-    }, API);
+    await pageApi(book2, "/api/admin/settings", {
+      method: "PATCH",
+      body: JSON.stringify({
+        values: {
+          "message.feedback_whatsapp": originalTemplate,
+          "company.feedback_form_url": "",
+        },
+      }),
+    });
+    const restored = (await pageApi(book2, "/api/admin/settings")).body?.values?.[
+      "message.feedback_whatsapp"
+    ];
     check("and the original wording is restored afterwards", restored === originalTemplate);
 
     await bookCtx2.close();
@@ -802,25 +769,14 @@ async function main() {
     // A lead of its own, so this journey does not depend on what an earlier
     // one left behind.
     const undoLeadName = `Undo Me ${Date.now()}`;
-    const created = await page.evaluate(
-      async ({ apiUrl, name }) => {
-        const token = window.localStorage.getItem("bde_portal_token");
-        const people = await fetch(`${apiUrl}/api/users/actionable`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((response) => response.json());
-        const assignee = people.find((person) => person.name === "Parth Fulvani");
-        const response = await fetch(`${apiUrl}/api/leads`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ name, assigned_to_user_id: assignee.id }),
-        });
-        return response.status;
-      },
-      { apiUrl: API, name: undoLeadName },
-    );
+    const people = (await pageApi(page, "/api/users/actionable")).body ?? [];
+    const assignee = people.find((person) => person.name === "Parth Fulvani");
+    const created = (
+      await pageApi(page, "/api/leads", {
+        method: "POST",
+        body: JSON.stringify({ name: undoLeadName, assigned_to_user_id: assignee?.id }),
+      })
+    ).status;
     check("a fresh lead is created for the pipeline journey", created === 201, `status ${created}`);
 
     await page.goto(`${APP}/leads?tab=all`, { waitUntil: "domcontentloaded" });
@@ -940,35 +896,17 @@ async function main() {
     await shoot(page, "11-accounts-bde");
 
     // The API is the real boundary: ask it directly, not through the UI.
-    const forbidden = await page.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const response = await fetch(`${apiUrl}/api/users`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return response.status;
-    }, API);
+    const forbidden = (await pageApi(page, "/api/users")).status;
     check("the API refuses a BDE the user directory (403)", forbidden === 403, `got ${forbidden}`);
 
     /* ------------------------- 7b. the modules are actually connected */
     section("7b. A converted lead reaches the feedback module, for its owner");
 
     // The analysis is department-scoped and stays shut...
-    const analysisStatus = await page.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const response = await fetch(`${apiUrl}/api/feedback/analysis`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return response.status;
-    }, API);
+    const analysisStatus = (await pageApi(page, "/api/feedback/analysis")).status;
     // Feedback reading was opened to everyone: it is how the company sees its
     // own performance. What stays shut is the alert queue, which is a job.
-    const alertStatus = await page.evaluate(async (apiUrl) => {
-      const token = window.localStorage.getItem("bde_portal_token");
-      const response = await fetch(`${apiUrl}/api/feedback/alerts`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      return response.status;
-    }, API);
+    const alertStatus = (await pageApi(page, "/api/feedback/alerts")).status;
     check(
       "a BDE can read how the company is scoring",
       analysisStatus === 200,
@@ -1048,8 +986,8 @@ main().catch((error) => {
  * way rather than an old one.
  */
 async function restoreSeedPassword(browser) {
-  // Two contexts, not one. The admin's session lives in localStorage, so
-  // going to /login on the same page bounces straight to /dashboard and the
+  // Two contexts, not one. The admin's session cookie belongs to its context,
+  // so going to /login on the same page bounces straight to /dashboard and the
   // form is never rendered - which is exactly how this failed the first time.
   const adminCtx = await browser.newContext();
   const bdeCtx = await browser.newContext();
@@ -1058,24 +996,7 @@ async function restoreSeedPassword(browser) {
   try {
     await signIn(admin, ADMIN, SEED_PASSWORD);
     await admin.waitForURL("**/dashboard", { timeout: 15000 });
-    await admin.evaluate(
-      async ({ apiUrl, email, password }) => {
-        const token = window.localStorage.getItem("bde_portal_token");
-        const people = await fetch(`${apiUrl}/api/users?page_size=200`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((response) => response.json());
-        const target = people.items.find((person) => person.email === email);
-        await fetch(`${apiUrl}/api/users/${target.id}/reset-password`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ new_password: password }),
-        });
-      },
-      { apiUrl: API, email: BDE, password: TEMP_PASSWORD },
-    );
+    await resetPasswordAs(admin, BDE, TEMP_PASSWORD);
 
     await signIn(bde, BDE, TEMP_PASSWORD);
     await bde.waitForURL("**/set-password", { timeout: 15000 });

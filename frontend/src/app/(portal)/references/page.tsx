@@ -34,8 +34,9 @@ import { TBody, TD, TH, THead, TR, Table, TableWrap } from "@/components/ui/Tabl
 import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/cn";
 import { formatDate, formatNumber } from "@/lib/format";
-import { REFERENCE_STATUS_LABELS, isCompletedReference } from "@/lib/roles";
+import { REFERENCE_STATUS_LABELS, isAdmin, isCompletedReference } from "@/lib/roles";
 import { useAsync, useDebounced } from "@/lib/useAsync";
 import type { ReferenceStats } from "@/types/api";
 
@@ -44,9 +45,7 @@ const PAGE_SIZE = 25;
 // Opens from "Record ask"; nothing to ship with the table until then.
 const RecordReferenceDialog = dynamic(
   () =>
-    import("@/components/references/RecordReferenceDialog").then(
-      (m) => m.RecordReferenceDialog,
-    ),
+    import("@/components/references/RecordReferenceDialog").then((m) => m.RecordReferenceDialog),
   { ssr: false },
 );
 
@@ -64,9 +63,7 @@ function wonHint(stats: ReferenceStats): string {
     parts.push(`${formatNumber(stats.eligible_accounts)} ready to ask`);
   }
   if (stats.waiting_period > 0) {
-    parts.push(
-      `${formatNumber(stats.waiting_period)} before their reference date`,
-    );
+    parts.push(`${formatNumber(stats.waiting_period)} before their reference date`);
   }
   return parts.join(" · ");
 }
@@ -106,6 +103,8 @@ function emptyDescription(stats: ReferenceStats | null, term: string): string {
 
 function ReferencesInner() {
   const { user } = useAuth();
+  // Administrators oversee the score; they are not scored themselves.
+  const showScore = !isAdmin(user?.role);
   const router = useRouter();
   const params = useSearchParams();
   const tab = params.get("tab") ?? "customers";
@@ -202,10 +201,7 @@ function ReferencesInner() {
         new Map(
           visibleAccounts
             .filter((account) => account.owner_user_id && account.owner_name)
-            .map((account) => [
-              account.owner_user_id as string,
-              account.owner_name as string,
-            ]),
+            .map((account) => [account.owner_user_id as string, account.owner_name as string]),
         ),
       ).sort((a, b) => a[1].localeCompare(b[1])),
     [visibleAccounts],
@@ -215,7 +211,12 @@ function ReferencesInner() {
   const referred = useAsync(
     (signal) =>
       api.references.list(
-        { outcome: "YES", search: debounced || undefined, page, page_size: PAGE_SIZE },
+        {
+          outcome: "YES",
+          search: debounced || undefined,
+          page,
+          page_size: PAGE_SIZE,
+        },
         signal,
       ),
     [debounced, page, nonce],
@@ -229,9 +230,16 @@ function ReferencesInner() {
       />
 
       {/* ------------------------------------------------------ KPIs */}
-      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:gap-3.5 xl:grid-cols-5">
+      <div
+        className={cn(
+          "mb-5 grid grid-cols-2 gap-2.5 sm:gap-3.5",
+          showScore ? "xl:grid-cols-5" : "xl:grid-cols-4",
+        )}
+      >
         {stats.loading || !stats.data ? (
-          Array.from({ length: 5 }).map((_, index) => <StatTileSkeleton key={index} index={index} />)
+          Array.from({ length: showScore ? 5 : 4 }).map((_, index) => (
+            <StatTileSkeleton key={index} index={index} />
+          ))
         ) : (
           <>
             {/*
@@ -276,27 +284,30 @@ function ReferencesInner() {
             />
             {/* The score the business agreed: the gap left to close, as a
                 negative percentage of the eligible book. 0% means every
-                eligible account has given a reference. */}
+                eligible account has given a reference. Not shown to Admin or
+                Super Admin, who are not scored. */}
+            {showScore ? (
+              <StatTile
+                index={3}
+                label="Reference score"
+                value={`${stats.data.reference_score}%`}
+                hint={
+                  stats.data.eligible_accounts > 0
+                    ? `${stats.data.references_taken} of ${stats.data.eligible_accounts} gave one · ${stats.data.reference_rate}% taken`
+                    : "No accounts are eligible yet"
+                }
+                icon={Percent}
+                accent={
+                  stats.data.reference_score === 0 && stats.data.eligible_accounts > 0
+                    ? "success"
+                    : stats.data.reference_score <= -50
+                      ? "warning"
+                      : "neutral"
+                }
+              />
+            ) : null}
             <StatTile
-              index={3}
-              label="Reference score"
-              value={`${stats.data.reference_score}%`}
-              hint={
-                stats.data.eligible_accounts > 0
-                  ? `${stats.data.references_taken} of ${stats.data.eligible_accounts} gave one · ${stats.data.reference_rate}% taken`
-                  : "No accounts are eligible yet"
-              }
-              icon={Percent}
-              accent={
-                stats.data.reference_score === 0 && stats.data.eligible_accounts > 0
-                  ? "success"
-                  : stats.data.reference_score <= -50
-                    ? "warning"
-                    : "neutral"
-              }
-            />
-            <StatTile
-              index={4}
+              index={showScore ? 4 : 3}
               label="Follow-ups due"
               value={stats.data.follow_ups_due}
               hint="Ask again today"
@@ -320,9 +331,21 @@ function ReferencesInner() {
             label: "Ready to ask",
             count: stats.data === null ? undefined : stats.data?.eligible_accounts,
           },
-          { key: "referred", label: "Referred people", count: referred.data?.total },
-          { key: "references", label: "Every ask", count: references.data?.total },
-          { key: "follow-ups", label: "Follow-ups due", count: followUps.data?.length },
+          {
+            key: "referred",
+            label: "Referred people",
+            count: referred.data?.total,
+          },
+          {
+            key: "references",
+            label: "Every ask",
+            count: references.data?.total,
+          },
+          {
+            key: "follow-ups",
+            label: "Follow-ups due",
+            count: followUps.data?.length,
+          },
         ]}
       />
 
@@ -342,9 +365,10 @@ function ReferencesInner() {
                 label: "Reference",
                 value: statusFilter,
                 anyLabel: "Any status",
-                options: Object.entries(REFERENCE_STATUS_LABELS).map(
-                  ([value, label]) => ({ value, label }),
-                ),
+                options: Object.entries(REFERENCE_STATUS_LABELS).map(([value, label]) => ({
+                  value,
+                  label,
+                })),
                 onChange: (value) => setParam("status", value),
               },
               {
@@ -352,7 +376,10 @@ function ReferencesInner() {
                 label: "Owner",
                 value: ownerFilter,
                 anyLabel: "Anyone",
-                options: owners.map(([id, name]) => ({ value: id, label: name })),
+                options: owners.map(([id, name]) => ({
+                  value: id,
+                  label: name,
+                })),
                 onChange: (value) => setParam("owner", value),
               },
             ]}
@@ -413,9 +440,7 @@ function ReferencesInner() {
                           {account.owner_name ? (
                             <span className="flex items-center gap-2">
                               <Avatar name={account.owner_name} size="xs" />
-                              <span className="text-[13px] text-muted">
-                                {account.owner_name}
-                              </span>
+                              <span className="text-[13px] text-muted">{account.owner_name}</span>
                             </span>
                           ) : (
                             <Badge className="border-line bg-surface-2 text-subtle">
@@ -629,9 +654,7 @@ function ReferencesInner() {
                           Converted lead
                         </Badge>
                       ) : (
-                        <Badge className="border-line bg-surface-2 text-subtle">
-                          Archived
-                        </Badge>
+                        <Badge className="border-line bg-surface-2 text-subtle">Archived</Badge>
                       )}
                     </div>
                     <p className="mt-1 text-[11.5px] text-subtle">
@@ -792,9 +815,7 @@ function ReferencesInner() {
             <span className="text-[12.5px] text-subtle">Group by</span>
             <Select
               value={followUpGroupBy}
-              onChange={(event) =>
-                setFollowUpGroupBy(event.target.value as "due_date" | "owner")
-              }
+              onChange={(event) => setFollowUpGroupBy(event.target.value as "due_date" | "owner")}
               aria-label="Group follow-ups by"
               className="w-auto min-w-36"
             >

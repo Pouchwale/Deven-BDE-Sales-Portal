@@ -38,6 +38,8 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  /** Short sign-in name, e.g. "navya". */
+  username: string | null;
   phone: string | null;
   role: Role;
   title: string | null;
@@ -48,11 +50,12 @@ export interface User {
   heads_department_id: string | null;
   is_active: boolean;
   must_change_password: boolean;
-  plain_password?: string | null;
   deactivated_at: string | null;
   created_at: string;
 }
 
+/** Never carries a password. The Super Admin reads one on demand through
+ *  api.users.revealPassword, which is audited. */
 export interface UserDetail extends User {
   manager_name: string | null;
   team_name: string | null;
@@ -61,7 +64,15 @@ export interface UserDetail extends User {
   /** Whether the CALLER may act on this user — the frontend hides controls
    *  from this rather than re-deriving the authority rules. */
   can_act_on: boolean;
+  last_login_at: string | null;
+  failed_login_count: number;
+  locked_until: string | null;
+  is_locked: boolean;
+  password_changed_at: string | null;
 }
+
+/** One audit event in a person's activity list (password material stripped). */
+export type UserActivityItem = AuditEvent;
 
 export interface OrgNode {
   id: string;
@@ -73,11 +84,12 @@ export interface OrgNode {
   reports: OrgNode[];
 }
 
+/** A successful sign-in. The session itself travels only in an HttpOnly
+ *  cookie; nothing here is a credential. */
 export interface TokenResponse {
-  access_token: string;
-  token_type: string;
   must_change_password: boolean;
   user: User;
+  csrf_token: string;
 }
 
 export interface Team {
@@ -205,11 +217,10 @@ export interface CustomerStats {
 
 /* -------------------------------------------------------------- dashboard */
 /**
- * The password that was just set, returned once.
+ * The outcome of setting somebody's password - never the password itself.
  *
- * There is no endpoint that reads an EXISTING password, and there cannot be:
- * they are stored as one-way hashes, so the plaintext is kept nowhere. This
- * is the single moment the value is readable.
+ * The only way to read a password back is the Super Admin's audited
+ * reveal (api.users.revealPassword).
  */
 export interface PasswordSetResult {
   message: string;
@@ -290,6 +301,12 @@ export interface Dashboard {
   role: Role;
 
   references: ReferenceStats;
+  /** Managers only: the score on accounts assigned to them personally. */
+  my_reference: {
+    eligible_accounts: number;
+    references_taken: number;
+    reference_score: number;
+  } | null;
   leads: LeadStats;
   org: OrgKpis;
   /** Null when the caller has no feedback rights at all, so the UI hides the
@@ -314,17 +331,23 @@ export interface CreateUserBody {
   honorific?: Honorific | null;
   name: string;
   email: string;
+  /** Optional; blank lets the server derive one from the name. */
+  username?: string | null;
   password: string;
+  confirm_password?: string;
   role: Role;
   phone?: string | null;
   title?: string | null;
   manager_id?: string | null;
   team_id?: string | null;
+  /** Force a change at first sign-in. Defaults to true on the server. */
+  must_change_password?: boolean;
 }
 
 export type UpdateUserBody = Partial<{
   name: string;
   email: string;
+  username: string;
   phone: string | null;
   honorific: Honorific | null;
   title: string | null;

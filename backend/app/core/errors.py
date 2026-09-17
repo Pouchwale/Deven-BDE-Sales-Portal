@@ -14,9 +14,11 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, OperationalError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.constants import ErrorCode
+from app.core.logging import get_logger, request_id_var
 
 
 class ApiError(Exception):
@@ -80,7 +82,64 @@ def _envelope(code: str, message: str, details: dict[str, Any] | None = None) ->
     return {"error": {"code": code, "message": message, "details": details or {}}}
 
 
+INTERNAL_ERROR_CODE = "INTERNAL_ERROR"
+INTERNAL_ERROR_MESSAGE = "Something went wrong. Please try again."
+SERVICE_UNAVAILABLE_CODE = "SERVICE_UNAVAILABLE"
+
+_log = get_logger("app.errors")
+
+
+def internal_error_body(request_id: str | None) -> dict:
+    """The body of every unexpected 500. Deliberately says nothing about the
+    failure: the request id is the handle to the server-side traceback."""
+    details = {"request_id": request_id} if request_id and request_id != "-" else {}
+    return _envelope(INTERNAL_ERROR_CODE, INTERNAL_ERROR_MESSAGE, details)
+
+
+def _request_id(request: Request) -> str:
+    return getattr(request.state, "request_id", None) or request_id_var.get()
+
+
 def register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(IntegrityError)
+    async def _integrity_error(request: Request, exc: IntegrityError) -> JSONResponse:
+        # The constraint name and SQL stay in the log; the client learns only
+        # that its change collided with existing data.
+        _log.warning(
+            "database integrity error: %s", type(exc.orig).__name__ if exc.orig else "unknown"
+        )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=_envelope(
+                str(ErrorCode.CONFLICT),
+                "That change conflicts with existing data. Refresh and try again.",
+                {"request_id": _request_id(request)},
+            ),
+        )
+
+    @app.exception_handler(OperationalError)
+    async def _operational_error(request: Request, exc: OperationalError) -> JSONResponse:
+        _log.error("database unavailable", exc_info=exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=_envelope(
+                SERVICE_UNAVAILABLE_CODE,
+                "The service is temporarily unavailable. Please try again shortly.",
+                {"request_id": _request_id(request)},
+            ),
+        )
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
+        # Normally unreachable: RequestContextMiddleware catches unhandled
+        # exceptions first so the 500 still carries the security headers.
+        # Kept so an app built without that middleware is equally safe.
+        _log.error("unhandled exception", exc_info=exc)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=internal_error_body(_request_id(request)),
+        )
+
     @app.exception_handler(ApiError)
     async def _api_error(_: Request, exc: ApiError) -> JSONResponse:
         return JSONResponse(

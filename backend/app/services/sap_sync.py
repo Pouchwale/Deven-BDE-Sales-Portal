@@ -15,10 +15,12 @@ Safety:
     and the next check tries again.
   * What the workbook shows but has not SAVED cannot be seen by anyone - the
     status reports the file's last-saved time so that is visible.
+  * The source is SERVER configuration only (SAP_DATA_FILE in the
+    environment). No endpoint accepts a path, and neither the status nor an
+    error message ever carries one back to a browser - only the file's name.
 """
 from __future__ import annotations
 
-import logging
 import threading
 import time
 from datetime import datetime, timezone
@@ -28,12 +30,13 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.db.session import SessionLocal
 from app.models.org import User
-from app.services.customer_source import FileCustomerSource
+from app.services.customer_source import FileCustomerSource, scrub_paths
 from app.services.sap_import import ImportResult, import_source
 
-log = logging.getLogger("app.sap_sync")
+log = get_logger("app.sap_sync")
 
 #: A save must be this old before it is read.
 SETTLE_SECONDS = 3
@@ -71,13 +74,31 @@ def _signature(path: Path) -> tuple[int, int]:
     return stat.st_mtime_ns, stat.st_size
 
 
-def run_import(db: Session, path: Path, *, actor: User | None = None) -> ImportResult:
+def safe_error(exc: BaseException, path: Path | None = None) -> str:
+    """An exception as a sentence with no filesystem path in it."""
+    message = str(exc) or type(exc).__name__
+    return scrub_paths(message, path, path.parent if path else None)
+
+
+def run_import(
+    db: Session,
+    path: Path,
+    *,
+    actor: User | None = None,
+    display_name: str | None = None,
+    ip_address: str | None = None,
+) -> ImportResult:
     """Import one file under the shared lock. Commits, or rolls back and raises."""
     if not _lock.acquire(timeout=120):
         raise SyncBusy("Another SAP import is still running. Try again in a moment.")
     try:
         try:
-            result = import_source(db, FileCustomerSource(path), actor=actor)
+            result = import_source(
+                db,
+                FileCustomerSource(path, display_name=display_name),
+                actor=actor,
+                ip_address=ip_address,
+            )
             db.commit()
         except Exception:
             db.rollback()
@@ -87,23 +108,25 @@ def run_import(db: Session, path: Path, *, actor: User | None = None) -> ImportR
         _lock.release()
 
 
-def sync_linked_file(db: Session, *, actor: User | None = None) -> ImportResult:
+def sync_linked_file(
+    db: Session, *, actor: User | None = None, ip_address: str | None = None
+) -> ImportResult:
     """Import the linked workbook now and record the outcome in the status."""
     global _imported_signature
     path = linked_file()
     if path is None:
         raise FileNotFoundError("No SAP workbook is linked (SAP_DATA_FILE is blank).")
     if not path.exists():
-        _record_error(f"Linked SAP workbook not found: {path}")
-        raise FileNotFoundError(f"Linked SAP workbook not found: {path}")
+        _record_error(f"Linked SAP workbook not found: {path.name}", path)
+        raise FileNotFoundError(f"Linked SAP workbook not found: {path.name}")
 
     signature = _signature(path)
     try:
-        result = run_import(db, path, actor=actor)
+        result = run_import(db, path, actor=actor, ip_address=ip_address)
     except SyncBusy:
         raise
     except Exception as exc:
-        _record_error(f"{type(exc).__name__}: {exc}")
+        _record_error(safe_error(exc, path), path, exc)
         raise
     _imported_signature = signature
     _state.update(
@@ -128,9 +151,26 @@ def forget_linked_signature() -> None:
     _imported_signature = None
 
 
-def _record_error(message: str) -> None:
-    _state.update(last_error=message[:500], last_error_at=_now())
-    log.warning("SAP sync: %s", message)
+def _record_error(
+    message: str, path: Path | None = None, exc: BaseException | None = None
+) -> None:
+    """Remember a failure for the status line, and log it once per change.
+
+    The watcher retries every interval; logging the same failure every 30
+    seconds would bury everything else, so only a NEW message is logged.
+    """
+    safe = scrub_paths(message, path, path.parent if path else None)[:500]
+    changed = safe != _state.get("last_error")
+    _state.update(last_error=safe, last_error_at=_now())
+    if changed:
+        log.error(
+            "SAP sync failed: %s",
+            safe,
+            extra={
+                "sap_file": path.name if path else None,
+                "error_type": type(exc).__name__ if exc else None,
+            },
+        )
 
 
 def check_once() -> bool:
@@ -141,11 +181,15 @@ def check_once() -> bool:
         return False
     try:
         if not path.exists():
-            _record_error(f"Linked SAP workbook not found: {path}")
+            _record_error(f"Linked SAP workbook not found: {path.name}", path)
             return False
         signature = _signature(path)
     except OSError as exc:
-        _record_error(f"Cannot read linked SAP workbook: {exc}")
+        _record_error(
+            f"Cannot read linked SAP workbook {path.name}: {safe_error(exc, path)}",
+            path,
+            exc,
+        )
         return False
     if signature == _imported_signature:
         return False
@@ -196,21 +240,28 @@ def stop() -> None:
 
 
 def status() -> dict[str, Any]:
+    """What the Super Admin status line shows. Never a filesystem path."""
     path = linked_file()
-    exists = bool(path and path.exists())
+    exists = False
     saved_at = None
-    if exists and path is not None:
-        saved_at = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    in_sync = False
+    if path is not None:
+        try:
+            exists = path.exists()
+            if exists:
+                signature = _signature(path)
+                saved_at = datetime.fromtimestamp(signature[0] / 1e9, tz=timezone.utc)
+                in_sync = _imported_signature == signature
+        except OSError:
+            exists = False
     return {
-        "linked_file": str(path) if path else None,
+        "linked": path is not None,
         "linked_file_name": path.name if path else None,
         "file_found": exists,
         "file_saved_at": saved_at,
         "auto_sync": bool(settings.SAP_AUTO_SYNC and path),
         "watcher_running": bool(_thread and _thread.is_alive()),
         "interval_seconds": settings.SAP_SYNC_INTERVAL_SECONDS,
-        "in_sync": bool(
-            exists and path is not None and _imported_signature == _signature(path)
-        ),
+        "in_sync": in_sync,
         **_state,
     }

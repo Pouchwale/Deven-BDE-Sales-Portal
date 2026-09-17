@@ -6,31 +6,58 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const API = "http://localhost:8000";
+import {
+  APP,
+  BROWSER_CHANNEL,
+  apiCall,
+  apiLogin,
+  requireSeedPassword,
+} from "./support/session.mjs";
+
+const SEED = requireSeedPassword();
 const failures = [];
 const check = (label, ok, detail = "") => {
   console.log(`  ${ok ? "ok  " : "FAIL"} ${label}${detail ? ` — ${detail}` : ""}`);
   if (!ok) failures.push(label);
 };
 
-const login = await fetch(`${API}/api/auth/login`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: "owner@pouchwale.com", password: "ChangeMe@123" }),
-}).then((r) => r.json());
-const token = login.access_token;
+const owner = (await apiLogin("owner@pouchwale.com", SEED)).auth;
+if (!owner) {
+  console.error("Could not sign in as owner@pouchwale.com with E2E_SEED_PASSWORD.");
+  process.exit(1);
+}
 const throwaway = `qa.temp.${Date.now()}@pouchwale.com`;
-const created = await fetch(`${API}/api/users`, {
+const initialPassword = `Temp${Date.now().toString().slice(-8)}abc`;
+const created = (
+  await apiCall(owner, "/api/users", {
+    method: "POST",
+    body: JSON.stringify({
+      name: "QA Throwaway",
+      email: throwaway,
+      password: initialPassword,
+      confirm_password: initialPassword,
+      role: "BDE",
+    }),
+  })
+).body;
+console.log(`created throwaway ${created?.id}`);
+// Signing in writes an audit row, and an account with an audit trail cannot be
+// deleted (by design). Step 1 signs the first throwaway in, so the delete
+// journey uses a second one that never signs in.
+const cleanEmail = `qa.clean.${Date.now()}@pouchwale.com`;
+const cleanCreated = await apiCall(owner, "/api/users", {
   method: "POST",
-  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
   body: JSON.stringify({
-    name: "QA Throwaway", email: throwaway, password: "Temp@2026abc", role: "BDE",
+    name: "QA Clean Throwaway",
+    email: cleanEmail,
+    password: initialPassword,
+    confirm_password: initialPassword,
+    role: "BDE",
   }),
-}).then((r) => r.json());
-console.log(`created throwaway ${created.id}`);
+});
+console.log(`created clean throwaway (status ${cleanCreated.status})`);
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch({ channel: BROWSER_CHANNEL });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await ctx.newPage();
 const errors = [];
@@ -39,7 +66,7 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
 await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
 await page.fill("#email", "owner@pouchwale.com");
-await page.fill("#password", "ChangeMe@123");
+await page.fill("#password", SEED);
 await page.click('button[type="submit"]');
 await page.waitForURL(/dashboard/, { timeout: 20000 });
 
@@ -52,33 +79,29 @@ async function openMenu(name, term = name) {
   await page.click(`button[aria-label^="Actions for ${name}"]`);
 }
 
-/* ---------------------------------------- 1. generate a password */
-console.log("\n1. Set password — generated");
+/* ---------------------------------------- 1. set a typed password */
+// The server never invents a password any more, so there is nothing to
+// generate or show: the administrator types it twice and it is never echoed.
+console.log("\n1. Change password — typed twice, never shown");
 await openMenu("QA Throwaway", throwaway);
-await page.click('[role="menuitem"]:has-text("Reset password")');
-await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
+await page.click('[role="menuitem"]:has-text("Change password")');
+await page.waitForSelector('[role="dialog"] #new-password', { timeout: 10000 });
 const dialog = page.locator('[role="dialog"]');
-check("the dialog offers to generate one",
-  (await dialog.innerText()).includes("Generate one for me") ||
-  (await dialog.locator("#new-password").getAttribute("placeholder"))?.includes("Generate"));
-check("and explains it is shown once",
-  (await dialog.innerText()).toLowerCase().includes("once"));
-await page.click('button:has-text("Set password")');
-await page.waitForSelector('[data-testid="new-password"]', { timeout: 15000 });
-const generated = (await page.locator('[data-testid="new-password"]').innerText()).trim();
-check("a password is shown after setting", generated.length >= 12, `got "${generated}"`);
-check("no ambiguous characters", !/[0O1lI]/.test(generated), generated);
-check("it warns the portal cannot show it again",
+check("no generate option is offered", !(await dialog.innerText()).includes("Generate"));
+check("it warns the portal cannot show a password",
   (await dialog.innerText()).includes("one-way hashes"));
-await page.click('button:has-text("Done")');
+const typed = `Qa${Date.now().toString().slice(-8)}Set`;
+await page.fill("#new-password", typed);
+await page.fill("#confirm-password", typed);
+await page.click('button[form="reset-form"]');
+await page.waitForSelector('[role="dialog"] #new-password', { state: "detached", timeout: 15000 });
+check("the password is not displayed anywhere afterwards",
+  !(await page.locator("body").innerText()).includes(typed));
 
 // It must actually work as a password.
-const asUser = await fetch(`${API}/api/auth/login`, {
-  method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: throwaway, password: generated }),
-});
-check("the generated password signs in", asUser.status === 200, `status ${asUser.status}`);
-check("and forces a change", (await asUser.json()).must_change_password === true);
+const asUser = await apiLogin(throwaway, typed);
+check("the new password signs in", asUser.status === 200, `status ${asUser.status}`);
+check("and forces a change", asUser.body.must_change_password === true);
 
 /* ------------------------------- 2. delete is refused for a real person */
 console.log("\n2. Delete — refused for somebody with history");
@@ -97,16 +120,20 @@ await page.keyboard.press("Escape");
 
 /* ------------------------------- 3. delete works on a clean account */
 console.log("\n3. Delete — allowed for an account with no history");
-await openMenu("QA Throwaway", throwaway);
+await openMenu("QA Clean Throwaway", cleanEmail);
 await page.click('[role="menuitem"]:has-text("Delete permanently")');
 await page.waitForSelector('[role="dialog"]', { timeout: 10000 });
 await page.click('button:has-text("Delete for good")');
 await page.waitForTimeout(2500);
-const gone = await fetch(`${API}/api/users?page_size=200&include_inactive=true`, {
-  headers: { Authorization: `Bearer ${token}` },
-}).then((r) => r.json());
+const gone = (await apiCall(owner, "/api/users?page_size=200&include_inactive=true")).body;
 check("the account is gone entirely",
-  !gone.items.some((u) => u.email === throwaway));
+  !gone.items.some((u) => u.email === cleanEmail));
+
+// The signed-in throwaway has an audit trail now: deactivate, not delete.
+if (created?.id) {
+  const off = await apiCall(owner, `/api/users/${created.id}`, { method: "DELETE" });
+  console.log(`deactivated the signed-in throwaway (status ${off.status})`);
+}
 
 const real = errors.filter((e) => !/favicon|404|Failed to load resource/i.test(e));
 check("no console errors", real.length === 0, real.slice(0, 2).join(" | "));

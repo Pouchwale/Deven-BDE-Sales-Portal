@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.core.deps import CurrentUser, DbSession
-from app.schemas.common import Message, ORMModel, Page
+from app.schemas.common import MAX_PAGE, Message, ORMModel, Page
 from app.services import notifications as notification_service
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
@@ -47,7 +47,7 @@ def list_notifications(
     user: CurrentUser,
     db: DbSession,
     unread_only: bool = Query(default=False),
-    page: int = Query(default=1, ge=1),
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
     page_size: int = Query(default=25, ge=1, le=100),
 ) -> Page[NotificationOut]:
     notification_service.ensure_followup_notifications(db, user)

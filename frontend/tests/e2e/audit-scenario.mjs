@@ -15,9 +15,16 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const API = "http://localhost:8000";
-const PW = "ChangeMe@123";
+import {
+  API,
+  APP,
+  BROWSER_CHANNEL,
+  apiCall,
+  apiLogin,
+  requireSeedPassword,
+} from "./support/session.mjs";
+
+const PW = requireSeedPassword();
 
 const results = [];
 const check = (label, ok, detail = "") => {
@@ -32,20 +39,19 @@ if (health.env !== "e2e") {
   process.exit(1);
 }
 
+const logins = {};
 async function token(email) {
-  const r = await fetch(`${API}/api/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password: PW }),
-  });
-  return (await r.json()).access_token;
+  const result = await apiLogin(email, PW);
+  if (!result.auth) {
+    console.error(`could not sign in as ${email} (status ${result.status})`);
+    process.exit(1);
+  }
+  logins[email] = result.body;
+  return result.auth;
 }
-const api = async (tok, path, init = {}) => {
-  const r = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}`, ...(init.headers ?? {}) },
-  });
-  return { status: r.status, body: r.status === 204 ? null : await r.json() };
+const api = async (auth, path, init = {}) => {
+  const { status, body } = await apiCall(auth, path, init);
+  return { status, body };
 };
 
 const T = {
@@ -54,11 +60,7 @@ const T = {
   muskan: await token("muskan.makhija@pouchwale.com"),
 };
 // /api/me is PATCH-only (self-service edits), so the id comes from sign-in.
-const parthUser = await fetch(`${API}/api/auth/login`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: "parth.fulvani@pouchwale.com", password: PW }),
-}).then((r) => r.json()).then((b) => b.user);
+const parthUser = logins["parth.fulvani@pouchwale.com"].user;
 
 // A fresh lead for the stage journey.
 const name = `UI Audit ${Date.now().toString().slice(-6)}`;
@@ -72,7 +74,7 @@ if (created.status !== 201) {
 }
 const LID = created.body.id;
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch({ channel: BROWSER_CHANNEL });
 
 async function session(email) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 950 } });

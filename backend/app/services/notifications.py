@@ -137,35 +137,50 @@ def ensure_followup_notifications(db: Session, user: User) -> int:
     from app.models.lead import Lead
 
     today = date.today()
-    due = (
-        db.execute(
-            select(Lead).where(
-                Lead.assigned_to_user_id == user.id,
-                Lead.status == LeadStatus.CONVERTED,
-                Lead.reference_status == ReferenceStatus.PENDING,
-                Lead.next_reference_date.is_not(None),
-                Lead.next_reference_date <= today,
-            )
+    # Only the three columns the reminder needs: this runs on every bell poll.
+    due = db.execute(
+        select(Lead.id, Lead.name, Lead.next_reference_date).where(
+            Lead.assigned_to_user_id == user.id,
+            Lead.status == LeadStatus.CONVERTED,
+            Lead.reference_status == ReferenceStatus.PENDING,
+            Lead.next_reference_date.is_not(None),
+            Lead.next_reference_date <= today,
         )
-        .scalars()
-        .all()
+    ).all()
+    if not due:
+        return 0
+
+    def key_for(lead_id: uuid.UUID) -> str:
+        return f"followup:{user.id}:{lead_id}:{today.isoformat()}"
+
+    # One lookup for every reminder already sent today, instead of one per
+    # due lead on every poll. The unique column still guards the race.
+    keys = [key_for(lead_id) for lead_id, _, _ in due]
+    existing = set(
+        db.execute(
+            select(Notification.dedupe_key).where(Notification.dedupe_key.in_(keys))
+        ).scalars()
     )
 
     created = 0
-    for lead in due:
-        notification = create(
-            db,
-            user_id=user.id,
-            type=NotificationType.REFERENCE_FOLLOWUP_DUE,
-            title=f"Reference follow-up due: {lead.name}",
-            body=(
-                f"You said you would ask {lead.name} again on "
-                f"{lead.next_reference_date:%d %b %Y}."
-            ),
-            entity_type="LEAD",
-            entity_id=lead.id,
-            dedupe_key=f"followup:{user.id}:{lead.id}:{today.isoformat()}",
+    for lead_id, name, next_reference_date in due:
+        dedupe_key = key_for(lead_id)
+        if dedupe_key in existing:
+            continue
+        existing.add(dedupe_key)
+        db.add(
+            Notification(
+                user_id=user.id,
+                type=str(NotificationType.REFERENCE_FOLLOWUP_DUE),
+                title=f"Reference follow-up due: {name}",
+                body=(
+                    f"You said you would ask {name} again on "
+                    f"{next_reference_date:%d %b %Y}."
+                ),
+                entity_type="LEAD",
+                entity_id=lead_id,
+                dedupe_key=dedupe_key,
+            )
         )
-        if notification is not None:
-            created += 1
+        created += 1
     return created

@@ -25,6 +25,20 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def as_naive_utc(value: datetime) -> datetime:
+    """A stored timestamp in the same shape as `utcnow()`.
+
+    PostgreSQL columns are timestamptz, so psycopg2 hands back AWARE values,
+    while SQLite (and an object not yet re-read from the database) gives
+    naive UTC. Comparing either with `utcnow()` in Python must go through
+    this, or PostgreSQL raises "can't compare offset-naive and offset-aware
+    datetimes".
+    """
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 class GUID(TypeDecorator):
     """UUID stored as PostgreSQL `uuid`, or as CHAR(36) text elsewhere.
 
@@ -58,9 +72,36 @@ class GUID(TypeDecorator):
 # jsonb on PostgreSQL, TEXT-backed JSON on SQLite - matching {{JSON}}.
 JSONType = JSON().with_variant(postgresql.JSONB(), "postgresql")
 
-# Naive UTC on SQLite, timestamptz on PostgreSQL. The session forces the
-# PostgreSQL connection to UTC so a naive value is never reinterpreted.
-TimestampType = DateTime()
+class UtcDateTime(TypeDecorator):
+    """TIMESTAMP on SQLite, timestamptz on PostgreSQL - read back as naive UTC.
+
+    The application invariant is "every timestamp in Python is naive UTC"
+    (see `utcnow`). psycopg2 returns timestamptz values AWARE, so without
+    this a value read from PostgreSQL could not be compared with, subtracted
+    from, or max()'d alongside `utcnow()` or an object created in the same
+    request - "can't compare offset-naive and offset-aware datetimes", which
+    SQLite never shows. Normalising here keeps both dialects identical.
+
+    Aware values being written are converted to UTC first; naive ones are
+    already UTC. The session forces the PostgreSQL connection to UTC, so a
+    naive value is never reinterpreted.
+    """
+
+    impl = DateTime
+    cache_ok = True
+
+    def process_bind_param(self, value: Any, dialect: Any) -> Any:
+        if isinstance(value, datetime) and value.tzinfo is not None:
+            return as_naive_utc(value)
+        return value
+
+    def process_result_value(self, value: Any, dialect: Any) -> Any:
+        if isinstance(value, datetime) and value.tzinfo is not None:
+            return as_naive_utc(value)
+        return value
+
+
+TimestampType = UtcDateTime()
 
 
 def new_uuid() -> uuid.UUID:

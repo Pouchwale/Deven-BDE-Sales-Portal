@@ -307,14 +307,26 @@ def remove(db: Session) -> int:
     return 0
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--remove",
         action="store_true",
         help="delete the sample reviews instead of creating them",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+
+    from app.core.config import settings
+
+    # Removing the sample batch is always allowed; loading invented reviews
+    # into a production database is not.
+    if settings.is_production and not args.remove:
+        print(
+            "Refusing: sample feedback is demo data and never loads with "
+            "ENV=production.",
+            file=sys.stderr,
+        )
+        return 1
 
     with SessionLocal() as db:
         return remove(db) if args.remove else load(db)

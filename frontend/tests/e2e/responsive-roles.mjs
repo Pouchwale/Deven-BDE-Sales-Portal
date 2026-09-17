@@ -7,8 +7,9 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const PW = "ChangeMe@123";
+import { APP, requireSeedPassword } from "./support/session.mjs";
+
+const PW = requireSeedPassword();
 
 const ROLES = [
   { who: "Super Admin", email: "owner@pouchwale.com" },

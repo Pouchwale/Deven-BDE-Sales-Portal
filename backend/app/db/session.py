@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.config import settings
 
 
-def build_engine(url: str) -> Engine:
+def build_engine(url: str, *, statement_timeout_ms: int | None = None) -> Engine:
+    """Create the engine.
+
+    `statement_timeout_ms` defaults to DB_STATEMENT_TIMEOUT_MS; pass 0 to run
+    without one (the migration runner does).
+    """
     kwargs: dict[str, Any] = {"pool_pre_ping": True, "future": True}
 
     if url.startswith("sqlite"):
@@ -22,7 +27,22 @@ def build_engine(url: str) -> Engine:
         # Timestamps are stored naive UTC (see app/db/base.utcnow). Pinning
         # the PostgreSQL session to UTC stops timestamptz reinterpreting a
         # naive value in the server's local zone.
-        kwargs["connect_args"] = {"options": "-c timezone=UTC"}
+        options = "-c timezone=UTC"
+        timeout = (
+            settings.DB_STATEMENT_TIMEOUT_MS
+            if statement_timeout_ms is None
+            else statement_timeout_ms
+        )
+        if timeout and timeout > 0:
+            # A runaway query is cancelled by the server instead of holding a
+            # pooled connection (and its locks) indefinitely.
+            options += f" -c statement_timeout={int(timeout)}"
+        kwargs["connect_args"] = {"options": options}
+        kwargs["pool_size"] = settings.DB_POOL_SIZE
+        kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
+        kwargs["pool_timeout"] = settings.DB_POOL_TIMEOUT
+        # Recycled before any firewall or server idle timeout can cut it.
+        kwargs["pool_recycle"] = settings.DB_POOL_RECYCLE
 
     return create_engine(url, **kwargs)
 

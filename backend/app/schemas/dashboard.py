@@ -36,6 +36,15 @@ class ReferenceKpis(BaseModel):
     reference_score: float = 0.0
 
 
+class PersonalReferenceScore(BaseModel):
+    """A manager's score on the accounts assigned to them personally, beside
+    the team score in `references`."""
+
+    eligible_accounts: int = 0
+    references_taken: int = 0
+    reference_score: float = 0.0
+
+
 class LeadKpis(BaseModel):
     total: int
     open: int
@@ -161,6 +170,8 @@ class DashboardOut(BaseModel):
     role: str
 
     references: ReferenceKpis
+    #: Managers only: their own accounts, apart from the team's.
+    my_reference: PersonalReferenceScore | None = None
     leads: LeadKpis
     org: OrgKpis
     # Present only when the caller may read feedback at all — an admin or a

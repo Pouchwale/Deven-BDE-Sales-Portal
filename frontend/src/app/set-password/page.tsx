@@ -8,20 +8,15 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
 import { InlineError, Spinner } from "@/components/ui/Feedback";
 import { cn } from "@/lib/cn";
-import { api, errorMessage, setToken } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
 
-/** Mirrors the backend's rule (8..72 bytes) plus advice it does not enforce. */
+/** Mirrors the backend (app/core/passwords.py): any password is accepted, up
+ *  to bcrypt's 72 bytes. Only that limit is listed, and only once it is hit. */
 function checks(password: string) {
-  return [
-    { label: "At least 8 characters", ok: password.length >= 8 },
-    { label: "A letter and a number", ok: /[A-Za-z]/.test(password) && /\d/.test(password) },
-    {
-      label: "At most 72 bytes",
-      ok: new TextEncoder().encode(password).length <= 72,
-    },
-  ];
+  const fits = new TextEncoder().encode(password).length <= 72;
+  return fits ? [] : [{ label: "At most 72 characters", ok: false }];
 }
 
 export default function SetPasswordPage() {
@@ -36,7 +31,7 @@ export default function SetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
 
   const rules = useMemo(() => checks(next), [next]);
-  const satisfied = rules.every((rule) => rule.ok);
+  const satisfied = next.length > 0 && rules.every((rule) => rule.ok);
   const matches = next.length > 0 && next === confirm;
 
   useEffect(() => {
@@ -57,14 +52,11 @@ export default function SetPasswordPage() {
 
     setSubmitting(true);
     try {
-      await api.auth.changePassword(current, next);
-      // The backend invalidates every token issued before the change, so the
-      // one we hold is already dead. Sign in again with the new password.
-      setToken(null);
+      await api.auth.changePassword(current, next, confirm);
+      // The backend ended every session this person held, this one included,
+      // and cleared the cookies. Sign in again with the new password.
       toast.success("Password updated", "Sign in with your new password.");
-      router.replace("/login");
-      // Clears the in-memory user without a second redirect.
-      window.setTimeout(() => signOut(), 0);
+      signOut();
     } catch (cause) {
       setError(errorMessage(cause));
       setSubmitting(false);

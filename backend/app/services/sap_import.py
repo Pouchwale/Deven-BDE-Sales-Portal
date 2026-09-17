@@ -167,6 +167,7 @@ def import_rows(
     filename: str,
     actor: User | None = None,
     link_leads: bool | None = None,
+    ip_address: str | None = None,
 ) -> ImportResult:
     """Apply an iterable of SAP lines. Caller commits.
 
@@ -177,7 +178,11 @@ def import_rows(
         link_leads = settings.SAP_LINK_LEADS
     result = ImportResult(filename=filename)
     users = db.execute(select(User)).scalars().all()
-    owners = {_match_key(u.name): u for u in users}
+    # Only ACTIVE accounts can be given work by the file - the same rule the
+    # portal's own assignment enforces. A Sales Person who matches only a
+    # deactivated account is reported as unmatched, exactly like an unknown
+    # name: a new customer is left unowned, an existing one keeps its owner.
+    owners = {_match_key(u.name): u for u in users if u.is_active}
     names: dict[uuid.UUID | None, str] = {u.id: u.name for u in users}
 
     batch = SapImport(
@@ -361,13 +366,19 @@ def import_rows(
         entity_id=batch.id,
         after={
             "filename": filename,
+            "result": result.status,
+            "total_rows": result.total_rows,
             "customers_created": result.customers_created,
             "customers_updated": result.customers_updated,
             "lines_created": result.lines_created,
+            "lines_skipped": result.lines_skipped,
             "owners_changed": result.owners_changed,
             "leads_created": result.leads_created,
             "error_count": result.error_count,
+            "unmatched_sales_people": len(result.unmatched_sales_people),
+            "not_in_file": len(result.not_in_file),
         },
+        ip_address=ip_address,
     )
     return result
 
@@ -544,7 +555,13 @@ def import_source(
     *,
     actor: User | None = None,
     link_leads: bool | None = None,
+    ip_address: str | None = None,
 ) -> ImportResult:
     return import_rows(
-        db, source.rows(), filename=source.name, actor=actor, link_leads=link_leads
+        db,
+        source.rows(),
+        filename=source.name,
+        actor=actor,
+        link_leads=link_leads,
+        ip_address=ip_address,
     )

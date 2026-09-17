@@ -1,5 +1,5 @@
 -- Rendered for postgresql by app/db/migrate.py
--- Generated 2026-09-16T06:28:34+00:00
+-- Generated 2026-09-17T04:47:22+00:00
 -- Do not edit: edit app/db/sql/*.sql and re-render.
 
 -- ===== 0001_initial.sql =====
@@ -655,7 +655,10 @@ CREATE TABLE chat_tool_calls (
     arguments    jsonb,
     row_count    INTEGER,
 
-    ok           boolean     NOT NULL DEFAULT 1,
+    -- TRUE, not 1: SQLite accepts either, PostgreSQL refuses an integer
+    -- default on a boolean. Corrected in place (2026-09) because the old text
+    -- could never have run on PostgreSQL, so no PostgreSQL database holds it.
+    ok           boolean     NOT NULL DEFAULT TRUE,
     error_code   VARCHAR(40),
     duration_ms  INTEGER,
 

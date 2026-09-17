@@ -13,7 +13,7 @@ import uuid
 from datetime import date
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.authority import ALL, _All, feedback_department_scope, visible_user_ids
 from app.core.constants import (
@@ -44,6 +44,13 @@ def _shape_for(actor: User) -> str:
 
 
 def build(db: Session, actor: User) -> dict:
+    # Read-only from here on, and several panels below start from the same
+    # post-sale population: compute it once per scope, not once per panel.
+    with metrics.memoized_population(db):
+        return _build(db, actor)
+
+
+def _build(db: Session, actor: User) -> dict:
     scope = visible_user_ids(db, actor)
     shape = _shape_for(actor)
 
@@ -58,15 +65,15 @@ def build(db: Session, actor: User) -> dict:
     # scope": they cannot be assigned anything and appear on no other screen,
     # so counting them here made this the one number that still knew about
     # them - 22 against a Team page showing 21.
+    # The same count answers both fields (they were two identical queries).
     user_stmt = select(func.count(User.id)).where(User.is_active.is_(True))
-    active_stmt = select(func.count(User.id)).where(User.is_active.is_(True))
     if scope is not ALL:
         user_stmt = user_stmt.where(User.id.in_(scope))
-        active_stmt = active_stmt.where(User.id.in_(scope))
+    active_in_scope = db.scalar(user_stmt) or 0
 
     org = {
-        "users_in_scope": db.scalar(user_stmt) or 0,
-        "active_users": db.scalar(active_stmt) or 0,
+        "users_in_scope": active_in_scope,
+        "active_users": active_in_scope,
         "unread_notifications": db.scalar(
             select(func.count(Notification.id)).where(
                 Notification.user_id == actor.id, Notification.is_read.is_(False)
@@ -81,13 +88,15 @@ def build(db: Session, actor: User) -> dict:
         "user_name": actor.name,
         "role": actor.role,
         "references": references,
+        "my_reference": None,
         "leads": leads,
         "org": org,
         "feedback": None,
         # Scoped by people, not by department: these are the caller's own
         # converted leads and customers still owed an ask, which is their work
         # whether or not they may read the feedback module's analysis.
-        "feedback_pending": len(feedback_analysis.pending_requests(db, actor, scope)),
+        # Counted, not listed: the number is all this screen shows.
+        "feedback_pending": feedback_analysis.pending_count(db, actor, scope),
         "department_ratings": [],
         "monthly_feedback": [],
         "alerts": [],
@@ -107,6 +116,14 @@ def build(db: Session, actor: User) -> dict:
         result["reports"] = report_rows(db, scope, exclude_id=actor.id, limit=25)
     elif shape == "MANAGER":
         result["reports"] = report_rows(db, scope, exclude_id=actor.id)
+        # The team figure above covers the whole subtree; a manager who also
+        # carries accounts of their own is scored on those separately.
+        own = metrics.reference_scores_by_user(db, [actor.id], today=date.today())[actor.id]
+        result["my_reference"] = {
+            "eligible_accounts": own["eligible"],
+            "references_taken": own["taken"],
+            "reference_score": own["score"],
+        }
 
     return result
 
@@ -247,7 +264,18 @@ def report_rows(
     # ordering by least-recent-activity would pin them to the top of the table
     # forever. This one filter also covers the assistant, which reads these
     # same rows through user_service.team_workload.
-    stmt = select(User).where(User.id != exclude_id, User.is_active.is_(True))
+    stmt = (
+        select(User)
+        .where(
+            User.id != exclude_id,
+            User.is_active.is_(True),
+            # The Super Admin runs the portal and carries no pipeline; a row
+            # of zeroes for them is noise in a table about people's work.
+            User.role != Role.SUPER_ADMIN,
+        )
+        # `team_name` below reads the relationship for every row.
+        .options(selectinload(User.team))
+    )
     if scope is not ALL:
         stmt = stmt.where(User.id.in_(scope))
     users = list(db.execute(stmt.order_by(User.name)).scalars().all())

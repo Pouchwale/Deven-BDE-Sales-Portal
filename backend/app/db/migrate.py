@@ -17,6 +17,7 @@ Rules
 Usage
     python -m app.db.migrate upgrade
     python -m app.db.migrate status
+    python -m app.db.migrate check            # exit 1 if pending/modified (CI/deploy)
     python -m app.db.migrate render --dialect postgresql --out schema.pg.sql
     python -m app.db.migrate reset            # dev SQLite only, drops the file
 """
@@ -196,6 +197,45 @@ def status(engine: Engine) -> None:
         print(f"  {version}  {path.name:<40} {state}")
 
 
+def check(engine: Engine) -> int:
+    """0 when every migration is applied and unmodified; 1 otherwise.
+
+    Strictly read-only: a missing tracking table means everything is pending.
+    """
+    from sqlalchemy import inspect
+
+    done: dict[str, str] = {}
+    if inspect(engine).has_table("schema_migrations"):
+        with engine.connect() as conn:
+            rows = conn.execute(text("SELECT version, checksum FROM schema_migrations")).all()
+        done = {row[0]: row[1] for row in rows}
+
+    todo: list[Path] = []
+    modified: list[str] = []
+    for path in migration_files():
+        version = version_of(path)
+        if version not in done:
+            todo.append(path)
+        elif done[version] != checksum(path):
+            modified.append(path.name)
+    if modified:
+        print(
+            "migration check FAILED: applied migration(s) modified since they "
+            "were applied: " + ", ".join(modified),
+            file=sys.stderr,
+        )
+        return 1
+    if todo:
+        print(
+            f"migration check FAILED: {len(todo)} pending migration(s): "
+            + ", ".join(p.name for p in todo),
+            file=sys.stderr,
+        )
+        return 1
+    print("migration check ok: database is up to date")
+    return 0
+
+
 def render_to(dialect: str, out: Path | None) -> str:
     """Concatenate every migration rendered for one dialect.
 
@@ -223,6 +263,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("upgrade", help="apply pending migrations")
     sub.add_parser("status", help="show applied and pending migrations")
+    sub.add_parser(
+        "check",
+        help="exit 0 if the database is fully migrated, non-zero if anything "
+        "is pending or an applied file was modified (for deploy pipelines)",
+    )
     sub.add_parser("reset", help="DEV ONLY: delete the SQLite file and re-apply")
     render_cmd = sub.add_parser("render", help="print the DDL for a dialect")
     render_cmd.add_argument("--dialect", default="postgresql")
@@ -238,20 +283,37 @@ def main(argv: list[str] | None = None) -> int:
 
     # Imported here so `render` works without a configured database.
     from app.core.config import settings
-    from app.db.session import engine
+    from app.db.session import build_engine
 
-    if args.command == "upgrade":
+    # No statement timeout for DDL: a long ALTER must not be cancelled halfway
+    # through a deploy.
+    engine = build_engine(settings.DATABASE_URL, statement_timeout_ms=0)
+    try:
+        return _dispatch(args.command, engine, settings)
+    finally:
+        engine.dispose()
+
+
+def _dispatch(command: str, engine: Engine, settings) -> int:  # noqa: ANN001
+    if command == "upgrade":
         print(f"upgrading {settings.safe_database_url}")
         upgrade(engine)
         return 0
 
-    if args.command == "status":
+    if command == "status":
         status(engine)
         return 0
 
-    if args.command == "reset":
-        if engine.dialect.name != "sqlite":
-            print("reset is refused on anything but SQLite.", file=sys.stderr)
+    if command == "check":
+        return check(engine)
+
+    if command == "reset":
+        if engine.dialect.name != "sqlite" or settings.is_production:
+            print(
+                "reset is refused: it only runs against a SQLite database "
+                "outside production.",
+                file=sys.stderr,
+            )
             return 1
         engine.dispose()
         db_path = Path(engine.url.database or "")

@@ -105,15 +105,16 @@ In a second terminal:
 ```bash
 cd frontend
 npm install
-cp .env.local.example .env.local   # NEXT_PUBLIC_API_URL, defaults to :8000
+cp .env.local.example .env.local   # BACKEND_INTERNAL_URL, defaults to 127.0.0.1:8000
 
 npm run dev                        # http://localhost:3000
 # or: npm run build && npm start
 ```
 
-Then open **http://localhost:3000** — that is the portal. If port 3000 is
-already taken, run `npm start -- --port 3100` and add that origin to
-`CORS_ORIGINS` in the backend `.env`, or the browser will block every request.
+Then open **http://localhost:3000** — that is the portal. The browser calls
+`/api/...` on the portal's own origin and Next forwards it to the backend
+(`BACKEND_INTERNAL_URL`), so no CORS setup is needed for another port such as
+`npm start -- --port 3100`.
 
 ```bash
 npm run check                      # typecheck + lint
@@ -773,6 +774,157 @@ path, which is the part that has to stay free of stack traces. The self-check co
 key works, that the tool schemas survive `strict: true`, and that prompt
 caching is actually hitting (`cache_read_input_tokens > 0` on the second turn —
 otherwise every message is paying full price for the same preamble).
+
+---
+
+## Production deployment
+
+Everything needed is in `deploy/`. The SAP workbook is watched on the server's
+disk (a OneDrive-synced folder), so production is this Windows machine — or a
+Windows server — behind an HTTPS reverse proxy.
+
+```
+                    ┌──────────────────── one origin: https://portal.example.com ───┐
+ browser ── 443 ──► │ Caddy  /api/*, /health ──► uvicorn  127.0.0.1:8000 (1 worker)  │
+  (80 → 443)        │        everything else ──► next start 127.0.0.1:3000           │
+                    └────────────────────────────────────────────────────────────────┘
+                                                   │
+                                          PostgreSQL 18  127.0.0.1:5432 (role bde_portal)
+```
+
+| File | Purpose |
+|---|---|
+| `deploy/Caddyfile.example` | TLS (automatic Let's Encrypt), HTTP→HTTPS, `/api/*` straight to uvicorn with `flush_interval -1` (SSE), 15 MB body limit, JSON access log in `D:\GP3\logs\caddy` |
+| `deploy/env/backend.production.env.example` | every production setting → copy to `backend\.env` |
+| `deploy/env/frontend.production.env.example` | `BACKEND_INTERNAL_URL` → `frontend\.env.production.local` |
+| `deploy/windows/start-backend.ps1` | checks `ENV=production`, runs `migrate check` (aborts if pending), starts uvicorn |
+| `deploy/windows/start-frontend.ps1` | `-Build` = `npm ci` + `next build`; then `next start -p 3000 -H 127.0.0.1` |
+| `deploy/windows/install-services.ps1` | registers the three NSSM services (elevated, run once; Task Scheduler fallback documented inside) |
+| `deploy/backup/*.ps1` | nightly backup, restore test, scheduled-task registration |
+
+**First install** (elevated PowerShell, from the repo root):
+
+```powershell
+copy deploy\env\backend.production.env.example backend\.env      # fill in every <placeholder>
+backend\.venv\Scripts\python.exe -m app.db.migrate upgrade
+backend\.venv\Scripts\python.exe -m app.seeds.bootstrap_admin --email owner@company.com --name "Portal Owner"
+deploy\windows\start-frontend.ps1 -Build                            # Ctrl+C once it is listening
+copy deploy\Caddyfile.example C:\caddy\Caddyfile                    # set the domain + email
+deploy\windows\install-services.ps1
+Start-Service BDEPortalBackend, BDEPortalFrontend, BDEPortalCaddy
+deploy\backup\register-backup-task.ps1
+```
+
+**The production commands** the services run:
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log
+next start --port 3000 --hostname 127.0.0.1
+caddy run --config C:\caddy\Caddyfile
+```
+
+Never `--reload` or `next dev` in production.
+
+**Why one uvicorn worker.** The SAP workbook watcher is a background thread,
+and the login/chat rate limiters and lockout counters are in process memory.
+Two workers would run two watchers importing the same file and give each
+worker its own limiter (doubling the allowed attempts). A single worker is
+ample for this portal; scaling out would first need a shared store (Redis) and
+a single dedicated watcher.
+
+**Same origin.** The browser only ever talks to `https://portal.example.com`.
+Caddy sends `/api/*` directly to uvicorn — not through Next — so the
+assistant's `text/event-stream` responses are flushed event by event. Next's
+own `/api/:path*` rewrite (`next.config.ts`, target `BACKEND_INTERNAL_URL`,
+baked in at build time) makes `next dev` and a bare `next start` work the same
+way without Caddy. Uvicorn listens on 127.0.0.1 only and trusts
+`X-Forwarded-For` only from Caddy (`--forwarded-allow-ips 127.0.0.1`,
+`TRUSTED_PROXIES=127.0.0.1`).
+
+**Security headers.** Pages get them from `next.config.ts` (CSP,
+`X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`,
+HSTS in production builds); `/api` gets them from the backend. Caddy only fills
+in HSTS/nosniff where an upstream did not send them, and strips `Server`.
+
+**Updating to a new version:** run a backup, `Stop-Service BDEPortalCaddy,
+BDEPortalFrontend, BDEPortalBackend`, update the code, `migrate upgrade`,
+`start-frontend.ps1 -Build` (Ctrl+C), start the services again.
+
+## Operations — backups and recovery
+
+**Nightly backup.** `deploy\backup\backup-postgres.ps1` runs from the
+Scheduled Task *BDE Portal - PostgreSQL backup* at 02:00 (registered with
+`register-backup-task.ps1`; if the PC was off it runs at next start-up):
+
+* `pg_dump -Fc` of `bde_portal` as the `bde_portal` role. The password is
+  parsed from `DATABASE_URL` at run time (`$env:DATABASE_URL` or
+  `backend\.env`), passed via a process-scoped `PGPASSWORD`, then cleared.
+  It is never written to a script, task or log.
+* Written to `D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump`
+  (`-Destination` to change; a folder inside the repo is refused), checked
+  with `pg_restore --list`, with a `.sha256` beside it.
+* Retention: newest backup of each of the last **14 days**, the last
+  **8 Sunday** backups and the last **6 first-of-month** backups. Hand-named
+  dumps (e.g. `…-pre-hardening.dump`) are never pruned.
+* Log: `D:\GP3\backups\postgres\backup.log`. Non-zero exit on failure, which
+  shows as *Last Run Result ≠ 0x0* in Task Scheduler.
+* Registered without elevation the task runs only while the user is signed
+  in; re-run `register-backup-task.ps1` elevated to make it run regardless.
+
+Run one by hand at any time — and **always before a migration or update**:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1
+```
+
+**Weekly restore test.** A backup that has never been restored is a hope, not
+a backup. Once a week (and after any PostgreSQL upgrade):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\restore-check.ps1
+```
+
+It verifies the checksum, restores the newest dump into a scratch database
+`bde_portal_restore_check` as the `postgres` superuser (password asked for, or
+`$env:PGPASSWORD_ADMIN`; never stored), compares row counts per table with the
+live database (read-only), prints **PASS / WARN / FAIL** and drops the scratch
+database. WARN means every table restored but counts moved since the dump —
+expected on a busy day.
+
+**Off-machine copy.** Backups on the same disk do not survive a disk failure,
+theft or ransomware. Copy `D:\GP3\backups\postgres` somewhere else at least
+daily — e.g. a OneDrive/SharePoint folder of a *different* account, an
+external disk rotated weekly, or a NAS (`robocopy D:\GP3\backups\postgres
+\\nas\backups\bde-portal *.dump *.sha256 /XO`). The dumps contain customer
+personal data: keep the destination access-controlled.
+
+**Recovery objectives.** RPO **24 h** (nightly dump; take a manual backup
+before risky work). RTO about **30 minutes** on this machine: the database is
+small and a restore takes seconds; most of the time is stopping services and
+checking.
+
+**Restoring the live database** (only after deciding the data is lost or
+corrupted):
+
+```powershell
+$bin = "C:\Program Files\PostgreSQL\18\bin"
+Stop-Service BDEPortalCaddy, BDEPortalFrontend, BDEPortalBackend   # nobody writes during the restore
+# 1. keep what is there now, even if broken
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1
+# 2. pick the dump and verify it
+Get-FileHash D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump -Algorithm SHA256   # compare with .sha256
+# 3. restore over the live database as its owner (asks for the bde_portal password)
+& "$bin\pg_restore.exe" --clean --if-exists --no-owner --role=bde_portal -h localhost -U bde_portal -d bde_portal D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump
+# 4. confirm the schema matches the code, then start again
+backend\.venv\Scripts\python.exe -m app.db.migrate check
+Start-Service BDEPortalBackend, BDEPortalFrontend, BDEPortalCaddy
+```
+
+If the whole machine is lost: install PostgreSQL 18, create the `bde_portal`
+role and database (see `.env.example`), restore the latest off-machine dump
+with the `pg_restore` line above (no `--clean` needed on an empty database),
+then follow *First install* from `migrate check` onwards. After any restore,
+people may have to sign in again.
 
 ---
 

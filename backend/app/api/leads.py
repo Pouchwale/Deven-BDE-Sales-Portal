@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query, Request, status
 
 from sqlalchemy.orm import Session
 
-from app.core.constants import LeadActivityType
+from app.core.constants import LeadActivityType, LeadOrigin, LeadPriority, LeadStatus
 from app.core.deps import (
     AdminUser,
     CurrentUser,
@@ -17,7 +17,7 @@ from app.core.deps import (
     client_ip,
 )
 from app.core.errors import invalid
-from app.schemas.common import Page
+from app.schemas.common import MAX_PAGE, MAX_PAGE_SIZE, Page
 from app.schemas.lead import (
     LeadActivityCreate,
     LeadActivityOut,
@@ -66,18 +66,18 @@ def list_leads(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    status_filter: str | None = Query(default=None, alias="status"),
-    origin: str | None = Query(default=None),
+    status_filter: LeadStatus | None = Query(default=None, alias="status"),
+    origin: LeadOrigin | None = Query(default=None),
     assigned_to: uuid.UUID | None = Query(default=None),
     assigned_by_me: bool = Query(
         default=False,
         description="Only leads the authenticated caller assigned.",
     ),
-    priority: str | None = Query(default=None),
+    priority: LeadPriority | None = Query(default=None),
     open_only: bool = Query(default=False),
     search: str | None = Query(default=None, max_length=120),
-    page: int = Query(default=1, ge=1),
-    page_size: int = Query(default=25, ge=1, le=200),
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
+    page_size: int = Query(default=25, ge=1, le=MAX_PAGE_SIZE),
 ) -> Page[LeadOut]:
     """Leads within the caller's visibility.
 
@@ -88,11 +88,11 @@ def list_leads(
     rows, total = lead_service.list_leads(
         db,
         scope,
-        status=status_filter,
-        origin=origin,
+        status=str(status_filter) if status_filter else None,
+        origin=str(origin) if origin else None,
         assigned_to=assigned_to,
         assigned_by=actor.id if assigned_by_me else None,
-        priority=priority,
+        priority=str(priority) if priority else None,
         open_only=open_only,
         search=search,
         page=page,
@@ -225,7 +225,7 @@ def compose_message(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    channel: str = Query(description="WHATSAPP or EMAIL"),
+    channel: str = Query(description="WHATSAPP or EMAIL", max_length=20),
 ) -> ComposedMessageOut:
     """The feedback request to send, already filled in.
 

@@ -17,7 +17,7 @@ from app.models.feedback import (
 )
 from app.models.lead import Lead, LeadActivity
 from app.models.post_sale import PostSaleRecord
-from app.models.org import Department, Team, User
+from app.models.org import Department, Team, User, UserSession
 from app.models.reference import CustomerReference
 from app.models.system import AppSetting, AuditEvent, Notification
 
@@ -45,4 +45,5 @@ __all__ = [
     "SapImport",
     "Team",
     "User",
+    "UserSession",
 ]

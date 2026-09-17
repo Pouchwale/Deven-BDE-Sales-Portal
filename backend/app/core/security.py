@@ -1,17 +1,20 @@
-"""Password hashing and JWT issuing.
+"""Password hashing and the CSRF token derivation.
 
 bcrypt directly rather than passlib: passlib is unmaintained and its bcrypt
-backend breaks against modern bcrypt releases. PyJWT rather than python-jose
-for the same reason.
+backend breaks against modern bcrypt releases.
+
+Browser sessions are server-side rows (see app/core/sessions.py), not signed
+tokens, so there is no JWT issuing here any more.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
 import bcrypt
-import jwt
 
 from app.core.config import settings
 
@@ -61,49 +64,30 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
-def password_stamp(password_changed_at: datetime | None) -> str:
-    """The value pinned into a token so a password change invalidates it.
+@lru_cache(maxsize=1)
+def _dummy_hash() -> str:
+    # Random per process: it must never verify against anything a caller
+    # could send.
+    return bcrypt.hashpw(secrets.token_bytes(32).hex().encode(), bcrypt.gensalt()).decode()
 
-    Comparing `iat` against password_changed_at cannot work: `iat` is whole
-    seconds by convention, so a reset in the same second as the login would
-    either fail to invalidate the old token or invalidate the new one. An
-    exact stamp has no granularity to get wrong.
+
+def burn_password_check(password: str) -> None:
+    """Spend the same bcrypt time as a real check, for an account that does
+    not exist - so response timing does not reveal which emails are staff."""
+    verify_password(password, _dummy_hash())
+
+
+def csrf_token_for(session_id: uuid.UUID) -> str:
+    """The CSRF value for one session.
+
+    Derived from the session id with the server secret, so it cannot be
+    chosen by an attacker (no fixation) and dies with the session.
     """
-    return password_changed_at.isoformat() if password_changed_at else ""
+    message = f"csrf:{session_id}".encode()
+    return hmac.new(settings.SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
-def create_access_token(
-    user_id: uuid.UUID,
-    *,
-    password_changed_at: datetime | None = None,
-    expires_minutes: int | None = None,
-) -> str:
-    now = datetime.now(timezone.utc)
-    minutes = expires_minutes or settings.ACCESS_TOKEN_EXPIRE_MINUTES
-    payload = {
-        "sub": str(user_id),
-        "pwd": password_stamp(password_changed_at),
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=minutes)).timestamp()),
-    }
-    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-
-def decode_access_token(token: str) -> dict | None:
-    """Return the claims, or None for anything invalid or expired."""
-    try:
-        return jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
-        )
-    except jwt.PyJWTError:
-        return None
-
-
-def token_is_stale(claims: dict, password_changed_at: datetime | None) -> bool:
-    """True when the password changed after this token was issued.
-
-    A password change or an admin reset must invalidate every existing
-    session immediately; without this a stolen token outlives the reset that
-    was meant to kill it.
-    """
-    return claims.get("pwd", "") != password_stamp(password_changed_at)
+def constant_time_equals(a: str | None, b: str | None) -> bool:
+    if not a or not b:
+        return False
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))

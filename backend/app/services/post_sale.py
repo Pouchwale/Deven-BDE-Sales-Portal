@@ -34,11 +34,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import text
-from app.core.constants import LeadStatus
+from app.core.constants import AuditAction, EntityType, LeadStatus
 from app.core.validators import InvalidPhone, normalise_phone
 from app.db.base import utcnow
 from app.models.lead import Lead
 from app.models.post_sale import PostSaleRecord
+from app.services import audit
 
 MATCHED = "MATCHED"
 UNMATCHED = "UNMATCHED"
@@ -168,20 +169,48 @@ def upsert_row(
     return record
 
 
-def sync_rows(db: Session, rows: list[dict]) -> SyncResult:
-    """Bring a batch in. Caller commits."""
+def sync_rows(
+    db: Session, rows: list[dict], *, actor_id: uuid.UUID | None = None
+) -> SyncResult:
+    """Bring a batch in. Caller commits.
+
+    Each row runs in its own SAVEPOINT. Without one, a row that failed at
+    flush rolled back the whole session transaction: every earlier row was
+    lost and every later one failed with "transaction has been rolled back",
+    while the result still claimed they had matched.
+    """
     result = SyncResult()
     index = LeadIndex(db)
     for position, row in enumerate(rows, start=1):
         try:
-            upsert_row(db, index, row, result)
+            with db.begin_nested():
+                upsert_row(db, index, row, result)
         except Exception as error:  # noqa: BLE001 - reported, never swallowed
-            result.errors.append({"row": position, "message": str(error)[:200]})
+            # The type only: a driver message can quote the row's values.
+            result.errors.append({"row": position, "message": type(error).__name__})
+    if actor_id is not None:
+        audit.record(
+            db,
+            actor_id=actor_id,
+            action=AuditAction.POST_SALE_SYNCED,
+            entity_type=EntityType.IMPORT,
+            after={
+                "total_rows": result.total_rows,
+                "matched": result.matched,
+                "unmatched": result.unmatched,
+                "updated": result.updated,
+                "errors": len(result.errors),
+            },
+        )
     return result
 
 
 def resolve(
-    db: Session, record_id: uuid.UUID, lead_id: uuid.UUID
+    db: Session,
+    record_id: uuid.UUID,
+    lead_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID | None = None,
 ) -> PostSaleRecord | None:
     """Attach an unmatched row to the lead a human identified.
 
@@ -195,10 +224,21 @@ def resolve(
     if lead is None or lead.status != LeadStatus.CONVERTED:
         return None
 
+    previous_status = record.status
     record.lead_id = lead.id
     record.status = MATCHED
     record.matched_on = "MANUAL"
     db.flush()
+    if actor_id is not None:
+        audit.record(
+            db,
+            actor_id=actor_id,
+            action=AuditAction.POST_SALE_RESOLVED,
+            entity_type=EntityType.LEAD,
+            entity_id=lead.id,
+            before={"record_id": record.id, "status": previous_status},
+            after={"record_id": record.id, "status": MATCHED, "matched_on": "MANUAL"},
+        )
     return record
 
 

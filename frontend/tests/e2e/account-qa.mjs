@@ -9,9 +9,9 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const API = "http://localhost:8000";
-const PW = "ChangeMe@123";
+import { APP, BROWSER_CHANNEL, apiCall, apiLogin, requireSeedPassword } from "./support/session.mjs";
+
+const PW = requireSeedPassword();
 
 const findings = [];
 const flag = (sev, who, what, expected, actual) => {
@@ -20,15 +20,13 @@ const flag = (sev, who, what, expected, actual) => {
 };
 
 // ------------------------------------------------------ who exists, from the API
-const ownerToken = await fetch(`${API}/api/auth/login`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: "owner@pouchwale.com", password: PW }),
-}).then((r) => r.json()).then((b) => b.access_token);
+const owner = (await apiLogin("owner@pouchwale.com", PW)).auth;
+if (!owner) {
+  console.error("Could not sign in as owner@pouchwale.com with E2E_SEED_PASSWORD.");
+  process.exit(1);
+}
 
-const roster = await fetch(`${API}/api/users?page_size=200&include_inactive=true`, {
-  headers: { Authorization: `Bearer ${ownerToken}` },
-}).then((r) => r.json());
+const roster = (await apiCall(owner, "/api/users?page_size=200&include_inactive=true")).body;
 
 const accounts = roster.items.map((u) => ({
   name: u.name, email: u.email, role: u.role, active: u.is_active,
@@ -36,7 +34,7 @@ const accounts = roster.items.map((u) => ({
 const active = accounts.filter((a) => a.active);
 console.log(`${accounts.length} accounts, ${active.length} active\n`);
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch({ channel: BROWSER_CHANNEL });
 
 async function signOut(page) {
   // The control lives behind the avatar menu, so the menu has to be opened
@@ -53,7 +51,7 @@ async function signIn(page, email) {
   await page.fill("#email", email);
   await page.fill("#password", PW);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/(dashboard|change-password)/, { timeout: 25000 });
+  await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 25000 });
 }
 
 /* ============================================ 1. every account, its own context */

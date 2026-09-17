@@ -1,13 +1,14 @@
 "use client";
 
 import {
-  Eye,
-  EyeOff,
+  History,
   KeyRound,
+  Lock,
   MoreHorizontal,
   Pencil,
   Search,
   ShieldCheck,
+  Unlock,
   UserPlus,
   Trash2,
   UserX,
@@ -16,6 +17,7 @@ import {
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 
+import { PasswordReveal } from "@/components/admin/PasswordReveal";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { ActiveBadge, Badge, RoleBadge } from "@/components/ui/Badge";
@@ -27,7 +29,7 @@ import { Pagination } from "@/components/ui/Pagination";
 import { TBody, TD, TH, THead, TR, Table, TableWrap } from "@/components/ui/Table";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime, formatRelative } from "@/lib/format";
 import { useToast } from "@/lib/toast";
 import { useAsync, useDebounced } from "@/lib/useAsync";
 import type { UserDetail } from "@/types/api";
@@ -51,6 +53,13 @@ const ResetPasswordDialog = dynamic(
 const DeactivateDialog = dynamic(() => ACTION_DIALOGS().then((m) => m.DeactivateDialog), {
   ssr: false,
 });
+const UserActivityDialog = dynamic(
+  () => ACTION_DIALOGS().then((m) => m.UserActivityDialog),
+  { ssr: false },
+);
+const UnlockUserDialog = dynamic(() => ACTION_DIALOGS().then((m) => m.UnlockUserDialog), {
+  ssr: false,
+});
 const UserFormDialog = dynamic(
   () => import("@/components/admin/UserFormDialog").then((m) => m.UserFormDialog),
   { ssr: false },
@@ -70,6 +79,8 @@ export default function AdminUsersPage() {
   const [deleting, setDeleting] = useState<UserDetail | null>(null);
   const [viewing, setViewing] = useState<UserDetail | null>(null);
   const [deactivating, setDeactivating] = useState<UserDetail | null>(null);
+  const [auditing, setAuditing] = useState<UserDetail | null>(null);
+  const [unlocking, setUnlocking] = useState<UserDetail | null>(null);
 
   const debouncedSearch = useDebounced(search, 300);
 
@@ -132,7 +143,7 @@ export default function AdminUsersPage() {
         title="User administration"
         description={
           <>
-            Create people, change reporting lines and reset passwords. Every action is
+            Create people, change reporting lines and change passwords. Every action is
             checked against your own rank and written to the audit trail — you can only
             act on people below you.
           </>
@@ -172,7 +183,7 @@ export default function AdminUsersPage() {
         {listing.error ? (
           <ErrorState error={listing.error} onRetry={listing.reload} />
         ) : listing.loading && !listing.data ? (
-          <TableSkeleton rows={8} columns={6} />
+          <TableSkeleton rows={8} columns={7} />
         ) : listing.data && listing.data.items.length === 0 ? (
           <EmptyState
             icon={ShieldCheck}
@@ -190,6 +201,7 @@ export default function AdminUsersPage() {
                     <TH>Reports to</TH>
                     <TH>Team</TH>
                     <TH>Status</TH>
+                    <TH>Last sign-in</TH>
                     <TH align="right">Actions</TH>
                   </tr>
                 </THead>
@@ -216,9 +228,16 @@ export default function AdminUsersPage() {
                               </span>
                             </button>
                             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-subtle">
+                              {person.username ? (
+                                <span className="font-medium text-muted">@{person.username}</span>
+                              ) : null}
                               <span className="truncate">{person.email}</span>
-                              <span className="text-subtle/40">•</span>
-                              <UserPasswordToggle password={person.plain_password || "ChangeMe@123"} />
+                              {isSuperAdmin(actor?.role) ? (
+                                <>
+                                  <span className="text-subtle/40">•</span>
+                                  <PasswordReveal key={person.id} userId={person.id} />
+                                </>
+                              ) : null}
                             </div>
                           </span>
                         </div>
@@ -245,10 +264,24 @@ export default function AdminUsersPage() {
                       </TD>
                       <TD data-label="Status">
                         {person.is_active ? (
-                          person.must_change_password ? (
-                            <Badge className="border-transparent bg-warning-soft text-warning">
-                              Password pending
-                            </Badge>
+                          person.is_locked ? (
+                            <span className="flex flex-col gap-0.5">
+                              <Badge className="border-transparent bg-danger-soft text-danger">
+                                <Lock className="size-3" aria-hidden />
+                                Locked
+                              </Badge>
+                              <span className="text-[11px] text-subtle">
+                                {person.failed_login_count} failed attempt
+                                {person.failed_login_count === 1 ? "" : "s"}
+                              </span>
+                            </span>
+                          ) : person.must_change_password ? (
+                            <span className="flex flex-col gap-0.5">
+                              <ActiveBadge active />
+                              <Badge className="border-transparent bg-warning-soft text-warning">
+                                Password change pending
+                              </Badge>
+                            </span>
                           ) : (
                             <ActiveBadge active />
                           )
@@ -259,6 +292,18 @@ export default function AdminUsersPage() {
                               {formatDate(person.deactivated_at)}
                             </span>
                           </span>
+                        )}
+                      </TD>
+                      <TD
+                        data-label="Last sign-in"
+                        className="whitespace-nowrap text-muted"
+                      >
+                        {person.last_login_at ? (
+                          <span title={formatDateTime(person.last_login_at)}>
+                            {formatRelative(person.last_login_at)}
+                          </span>
+                        ) : (
+                          <span className="text-subtle">Never</span>
                         )}
                       </TD>
                       <TD data-actions align="right">
@@ -287,6 +332,8 @@ export default function AdminUsersPage() {
                           }
                           onDeactivate={() => setDeactivating(person)}
                           onReactivate={() => reactivate(person)}
+                          onActivity={() => setAuditing(person)}
+                          onUnlock={() => setUnlocking(person)}
                         />
                       </TD>
                     </TR>
@@ -314,6 +361,7 @@ export default function AdminUsersPage() {
         <UserDetailPanel
           key={`view-${viewing.id}`}
           user={viewing}
+          canRevealPassword={isSuperAdmin(actor?.role)}
           onClose={() => setViewing(null)}
           onEdit={() => { setEditing(viewing); setViewing(null); }}
           onSetPassword={() => { setResetting(viewing); setViewing(null); }}
@@ -369,32 +417,22 @@ export default function AdminUsersPage() {
           user={deactivating}
         />
       ) : null}
+      {auditing ? (
+        <UserActivityDialog
+          key={`activity-${auditing.id}`}
+          user={auditing}
+          onClose={() => setAuditing(null)}
+        />
+      ) : null}
+      {unlocking ? (
+        <UnlockUserDialog
+          key={`unlock-${unlocking.id}`}
+          user={unlocking}
+          onClose={() => setUnlocking(null)}
+          onDone={listing.reload}
+        />
+      ) : null}
     </>
-  );
-}
-
-function UserPasswordToggle({ password }: { password: string }) {
-  const [show, setShow] = useState(false);
-
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[11px] text-muted border border-line/60"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <span className="font-semibold text-content">{show ? password : "*****"}</span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          setShow((prev) => !prev);
-        }}
-        title={show ? "Hide password" : "Show password"}
-        aria-label={show ? "Hide password" : "Show password"}
-        className="ml-0.5 text-subtle hover:text-content transition-colors p-0.5 rounded focus:outline-none"
-      >
-        {show ? <EyeOff className="size-3" /> : <Eye className="size-3" />}
-      </button>
-    </span>
   );
 }
 
@@ -411,6 +449,8 @@ function RowActions({
   onReset,
   onDeactivate,
   onReactivate,
+  onActivity,
+  onUnlock,
   onDelete,
 }: {
   person: UserDetail;
@@ -418,6 +458,8 @@ function RowActions({
   onReset: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
+  onActivity: () => void;
+  onUnlock: () => void;
   /** Omitted for anyone who is not a Super Admin, so the menu never offers
    *  an action the server would refuse. */
   onDelete?: () => void;
@@ -469,7 +511,7 @@ function RowActions({
         >
           <MenuItem
             icon={Pencil}
-            label="Edit details"
+            label="Edit"
             onClick={() => {
               setOpen(false);
               onEdit();
@@ -477,12 +519,22 @@ function RowActions({
           />
           <MenuItem
             icon={KeyRound}
-            label="Reset password"
+            label="Change password"
             onClick={() => {
               setOpen(false);
               onReset();
             }}
           />
+          {person.is_locked ? (
+            <MenuItem
+              icon={Unlock}
+              label="Unlock"
+              onClick={() => {
+                setOpen(false);
+                onUnlock();
+              }}
+            />
+          ) : null}
           {person.is_active ? (
             <MenuItem
               icon={UserX}
@@ -496,13 +548,21 @@ function RowActions({
           ) : (
             <MenuItem
               icon={Undo2}
-              label="Reactivate"
+              label="Activate"
               onClick={() => {
                 setOpen(false);
                 onReactivate();
               }}
             />
           )}
+          <MenuItem
+            icon={History}
+            label="View activity"
+            onClick={() => {
+              setOpen(false);
+              onActivity();
+            }}
+          />
           {onDelete ? (
             <MenuItem
               icon={Trash2}

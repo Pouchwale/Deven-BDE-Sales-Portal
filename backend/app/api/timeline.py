@@ -12,7 +12,7 @@ from datetime import datetime
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
-from app.core.deps import CurrentUser, DbSession, VisibilityScope, client_ip
+from app.core.deps import AdminUser, CurrentUser, DbSession, VisibilityScope, client_ip
 from app.schemas.common import Message
 from app.schemas.messaging import ComposedMessageOut, SentBody
 from app.services import customer_timeline, feedback_requests, messaging
@@ -37,8 +37,12 @@ class TimelineEntry(BaseModel):
 
 
 class LogActivityBody(BaseModel):
-    activity_type: str
+    activity_type: str = Field(min_length=1, max_length=40)
     remark: str | None = Field(default=None, max_length=2000)
+
+
+#: A customer's timeline is short in practice; this bounds the response.
+TIMELINE_MAX_ENTRIES = 500
 
 
 def _feedback_code(
@@ -70,8 +74,8 @@ def compose_message(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    purpose: str = Query(description="FEEDBACK"),
-    channel: str = Query(description="WHATSAPP or EMAIL"),
+    purpose: str = Query(description="FEEDBACK", max_length=20),
+    channel: str = Query(description="WHATSAPP or EMAIL", max_length=20),
 ) -> ComposedMessageOut:
     """The message to send, already filled in.
 
@@ -149,10 +153,9 @@ def get_timeline(
     db: DbSession,
     scope: VisibilityScope,
 ) -> list[TimelineEntry]:
-    return [
-        TimelineEntry(**entry)
-        for entry in customer_timeline.timeline(db, actor, scope, customer_id)
-    ]
+    # Newest first, so the cap drops only the oldest entries.
+    entries = customer_timeline.timeline(db, actor, scope, customer_id)
+    return [TimelineEntry(**entry) for entry in entries[:TIMELINE_MAX_ENTRIES]]
 
 
 @router.post("/{customer_id}/timeline", response_model=list[TimelineEntry])
@@ -192,8 +195,12 @@ def undo_activity(
 
 
 @router.post("/backfill-feedback-links", response_model=Message)
-def backfill_links(_: CurrentUser, db: DbSession) -> Message:
-    """Link any feedback imported before customer matching existed."""
+def backfill_links(_: AdminUser, db: DbSession) -> Message:
+    """Link any feedback imported before customer matching existed.
+
+    Administrators only: it rewrites the customer link on every unlinked
+    response in the company, which is maintenance, not a field user's action.
+    """
     linked = customer_timeline.backfill_feedback_links(db)
     db.commit()
     return Message(message=f"Linked {linked} response(s) to a customer.")

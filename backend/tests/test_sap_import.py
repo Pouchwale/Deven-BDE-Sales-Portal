@@ -257,3 +257,104 @@ def test_a_row_with_no_customer_code_is_an_error_not_a_crash(db, tmp_path) -> No
     assert result.error_count == 1
     assert result.lines_created == 0
     assert "no customer code" in result.errors[0]["message"]
+
+
+# ------------------------------------------------------------ data integrity
+def _counts(db) -> dict[str, int]:
+    from app.models.lead import Lead, LeadActivity
+    from app.models.post_sale import PostSaleRecord
+
+    return {
+        "customers": db.scalar(select(func.count(Customer.id))),
+        "lines": db.scalar(select(func.count(InvoiceLine.id))),
+        "leads": db.scalar(select(func.count(Lead.id))),
+        "activities": db.scalar(select(func.count(LeadActivity.id))),
+        "post_sale": db.scalar(select(func.count(PostSaleRecord.id))),
+    }
+
+
+INTEGRITY_HEADER = (
+    "Customer Code,Customer Name,Mobile,Email,FGPO Code,Invoice Date,Sales Person\n"
+)
+
+
+def test_importing_the_same_file_twice_creates_nothing_the_second_time(db, tmp_path) -> None:
+    export = tmp_path / "twice.csv"
+    export.write_text(
+        INTEGRITY_HEADER
+        + "C8101,TWICE FOODS LLP,9000000101,twice@example.com,FGPO8101,2026-09-01,Kevin\n"
+        + "C8101,TWICE FOODS LLP,9000000101,twice@example.com,FGPO8102,2026-09-03,Kevin\n"
+        + "C8102,ONCE MORE LLP,9000000102,,FGPO8103,2026-09-02,Apurva Shah\n",
+        encoding="utf-8",
+    )
+    before = _counts(db)
+    first = import_source(db, FileCustomerSource(export), link_leads=True)
+    after_first = _counts(db)
+    assert first.customers_created == 2 and first.lines_created == 3
+    assert after_first["customers"] == before["customers"] + 2
+    assert after_first["leads"] == before["leads"] + 2
+    assert after_first["post_sale"] == before["post_sale"] + 2
+
+    second = import_source(db, FileCustomerSource(export), link_leads=True)
+    assert second.customers_created == 0
+    assert second.lines_created == 0 and second.lines_skipped == 3
+    assert second.leads_created == 0 and second.owners_changed == 0
+    assert _counts(db) == after_first
+
+
+def test_a_duplicated_row_inside_one_file_is_stored_once(db, tmp_path) -> None:
+    row = "C8201,DUPLICATE ROW LLP,9000000201,,FGPO8201,2026-09-01,Kevin\n"
+    export = tmp_path / "dupes.csv"
+    export.write_text(INTEGRITY_HEADER + row + row + row, encoding="utf-8")
+    before = _counts(db)
+    result = import_source(db, FileCustomerSource(export), link_leads=True)
+    assert result.total_rows == 3
+    assert result.lines_created == 1 and result.lines_skipped == 2
+    after = _counts(db)
+    assert after["customers"] == before["customers"] + 1
+    assert after["lines"] == before["lines"] + 1
+    assert after["leads"] == before["leads"] + 1
+
+
+def test_a_failure_mid_import_leaves_nothing_behind(db, tmp_path, monkeypatch) -> None:
+    from app.services import sap_import, sap_sync
+
+    export = tmp_path / "half.csv"
+    export.write_text(
+        INTEGRITY_HEADER
+        + "C8301,HALF ONE LLP,9000000301,,FGPO8301,2026-09-01,Kevin\n"
+        + "C8302,HALF TWO LLP,9000000302,,FGPO8302,2026-09-01,Kevin\n",
+        encoding="utf-8",
+    )
+    before = _counts(db)
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("database went away half-way")
+
+    # Customers and lines are already flushed when lead linking fails.
+    monkeypatch.setattr(sap_import, "link_customer_leads", explode)
+    monkeypatch.setattr(sap_import.settings, "SAP_LINK_LEADS", True)
+    with pytest.raises(RuntimeError):
+        sap_sync.run_import(db, export)
+    db.expire_all()
+    assert _counts(db) == before
+    assert db.execute(select(Customer).where(Customer.sap_code == "C8301")).first() is None
+
+
+def test_a_sales_person_matching_only_a_deactivated_account_is_unmatched(
+    db, tmp_path
+) -> None:
+    kevin = db.execute(select(User).where(User.name == "Kevin")).scalar_one()
+    kevin.is_active = False
+    db.flush()
+
+    export = tmp_path / "inactive.csv"
+    export.write_text(
+        INTEGRITY_HEADER + "C8401,INACTIVE OWNER LLP,9000000401,,FGPO8401,2026-09-01,Kevin\n",
+        encoding="utf-8",
+    )
+    result = import_source(db, FileCustomerSource(export), link_leads=True)
+    assert result.unmatched_sales_people == {"Kevin"}
+    customer = db.execute(select(Customer).where(Customer.sap_code == "C8401")).scalar_one()
+    assert customer.owner_user_id is None
+    assert customer.sap_sales_person == "Kevin"

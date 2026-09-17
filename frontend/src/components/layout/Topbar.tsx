@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut, Menu, Moon, Sun, UserRound } from "lucide-react";
+import { KeyRound, LogOut, Menu, Moon, Sun, UserRound } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -16,18 +16,13 @@ export function Topbar({
   user,
   title,
   navOpen,
-  navCollapsed,
   onOpenNav,
-  onToggleNav,
 }: {
   user: User;
   title: string;
   /** Whether the nav drawer is open — announced on the button that opens it. */
   navOpen: boolean;
-  /** Whether the desktop sidebar is currently pushed off-screen. */
-  navCollapsed: boolean;
   onOpenNav: () => void;
-  onToggleNav: () => void;
 }) {
   const { theme, toggle } = useTheme();
   const { signOut } = useAuth();
@@ -54,11 +49,8 @@ export function Topbar({
 
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-bg/85 px-4 backdrop-blur-md sm:px-6">
-      {/* Two buttons rather than one that guesses the viewport in JS: below
-          lg the sidebar is an overlay drawer you OPEN, at lg and above it is
-          a permanent panel you COLLAPSE. Same icon in the same place, so it
-          reads as one control; different verbs, so the label and aria-expanded
-          are honest about which one you are pressing. */}
+      {/* Below lg the sidebar is an overlay drawer opened from here. At lg
+          and above it is always on screen and collapses from its own button. */}
       <button
         type="button"
         onClick={onOpenNav}
@@ -68,18 +60,6 @@ export function Topbar({
         // p-2.5 on a 18px icon gives a 44px target — the smallest a thumb
         // hits reliably.
         className="-ml-1.5 grid size-11 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-hover hover:text-content lg:hidden"
-      >
-        <Menu className="size-5" aria-hidden />
-      </button>
-
-      <button
-        type="button"
-        onClick={onToggleNav}
-        aria-label={navCollapsed ? "Show navigation" : "Hide navigation"}
-        aria-expanded={!navCollapsed}
-        aria-controls="portal-nav"
-        title={navCollapsed ? "Show navigation" : "Hide navigation"}
-        className="-ml-1.5 hidden size-11 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-hover hover:text-content lg:grid"
       >
         <Menu className="size-5" aria-hidden />
       </button>
@@ -142,6 +122,15 @@ export function Topbar({
               >
                 <UserRound className="size-4" aria-hidden />
                 My profile
+              </Link>
+              <Link
+                href="/profile#security"
+                role="menuitem"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] text-muted transition-colors hover:bg-surface-hover hover:text-content"
+              >
+                <KeyRound className="size-4" aria-hidden />
+                Security · Change password
               </Link>
               <button
                 type="button"

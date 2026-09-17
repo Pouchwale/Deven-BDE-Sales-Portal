@@ -88,7 +88,8 @@ export default function DashboardPage() {
                 {data.alerts
                   .map(
                     (alert) =>
-                      `${alert.department_name} (${alert.average_rating}/${data.feedback?.rating_scale_max ?? 5
+                      `${alert.department_name} (${alert.average_rating}/${
+                        data.feedback?.rating_scale_max ?? 5
                       } over ${alert.response_count} ratings)`,
                   )
                   .join(" · ")}
@@ -165,29 +166,49 @@ export default function DashboardPage() {
             />
             {/* The agreed score: the reference gap left to close, as a
                 negative percentage of the eligible book. 10 accounts with 7
-                references reads -30%; nothing left to ask reads 0%. */}
+                references reads -30%; nothing left to ask reads 0%.
+
+                Admin and Super Admin are not scored, so they see no score
+                tile. A manager sees the team's score and, separately, their
+                own on the accounts assigned to them personally. */}
+            {data.shape !== "ADMIN" ? (
+              <StatTile
+                index={2}
+                label={data.shape === "MANAGER" ? "Team reference score" : "Reference score"}
+                value={`${data.references.reference_score}%`}
+                hint={
+                  data.references.eligible_accounts > 0
+                    ? `${data.references.references_taken} of ${data.references.eligible_accounts} gave a reference`
+                    : "No accounts are eligible yet"
+                }
+                icon={Percent}
+                accent={scoreAccent(
+                  data.references.reference_score,
+                  data.references.eligible_accounts,
+                )}
+                href="/references"
+              />
+            ) : null}
+            {data.shape === "MANAGER" && data.my_reference ? (
+              <StatTile
+                index={3}
+                label="My reference score"
+                value={`${data.my_reference.reference_score}%`}
+                hint={
+                  data.my_reference.eligible_accounts > 0
+                    ? `${data.my_reference.references_taken} of ${data.my_reference.eligible_accounts} of your own accounts`
+                    : "None of your own accounts are eligible yet"
+                }
+                icon={Percent}
+                accent={scoreAccent(
+                  data.my_reference.reference_score,
+                  data.my_reference.eligible_accounts,
+                )}
+                href="/references"
+              />
+            ) : null}
             <StatTile
-              index={2}
-              label="Reference score"
-              value={`${data.references.reference_score}%`}
-              hint={
-                data.references.eligible_accounts > 0
-                  ? `${data.references.references_taken} of ${data.references.eligible_accounts} gave a reference`
-                  : "No accounts are eligible yet"
-              }
-              icon={Percent}
-              accent={
-                data.references.reference_score === 0 &&
-                data.references.eligible_accounts > 0
-                  ? "success"
-                  : data.references.reference_score <= -50
-                    ? "warning"
-                    : "neutral"
-              }
-              href="/references"
-            />
-            <StatTile
-              index={3}
+              index={4}
               label="Follow-ups due"
               value={data.references.follow_ups_due}
               hint="Ask again today"
@@ -262,9 +283,7 @@ export default function DashboardPage() {
                   value={data.feedback.departments_below_threshold}
                   hint="Departments below threshold"
                   icon={AlertTriangle}
-                  accent={
-                    data.feedback.departments_below_threshold > 0 ? "danger" : "neutral"
-                  }
+                  accent={data.feedback.departments_below_threshold > 0 ? "danger" : "neutral"}
                   href="/feedback?tab=analysis"
                 />
               </>
@@ -285,8 +304,14 @@ export default function DashboardPage() {
                   data={[
                     { label: "Not asked", value: data.references.not_asked },
                     { label: "Taken", value: data.references.references_taken },
-                    { label: "Pending", value: data.references.references_pending },
-                    { label: "Declined", value: data.references.references_declined },
+                    {
+                      label: "Pending",
+                      value: data.references.references_pending,
+                    },
+                    {
+                      label: "Declined",
+                      value: data.references.references_declined,
+                    },
                   ]}
                   emptyMessage={
                     data.references.converted_leads > 0
@@ -364,12 +389,12 @@ export default function DashboardPage() {
                     <RangeToggle value={trendRange} onChange={setTrendRange} />
                   </CardHeader>
                   <CardBody>
-                    <TrendLine data={
-                      data.monthly_feedback.slice(-trendRange).map((row) => ({
+                    <TrendLine
+                      data={data.monthly_feedback.slice(-trendRange).map((row) => ({
                         label: row.month,
                         value: row.responses,
-                      }))
-                    } />
+                      }))}
+                    />
                   </CardBody>
                 </Card>
               </>
@@ -390,15 +415,22 @@ export default function DashboardPage() {
               />
             </div>
           ) : null}
-
         </>
       )}
 
       <div className="mt-4 flex items-center gap-2 text-[11.5px] text-subtle">
         <ReceiptText className="size-3.5" aria-hidden />
-        Nothing here is seeded — every number comes from work done in the portal,
-        counted once and shown the same way on every screen.
+        Nothing here is seeded — every number comes from work done in the portal, counted once and
+        shown the same way on every screen.
       </div>
     </>
   );
+}
+
+/** Green once every eligible account has given a reference, amber when more
+ *  than half still owe one. */
+function scoreAccent(score: number, eligible: number): "success" | "warning" | "neutral" {
+  if (score === 0 && eligible > 0) return "success";
+  if (score <= -50) return "warning";
+  return "neutral";
 }

@@ -6,9 +6,15 @@
  */
 import { chromium } from "playwright-core";
 
-const APP = "http://localhost:3000";
-const API = "http://localhost:8000";
-const SEED = "ChangeMe@123";
+import {
+  APP,
+  BROWSER_CHANNEL,
+  apiCall,
+  apiLogin,
+  requireSeedPassword,
+} from "./support/session.mjs";
+
+const SEED = requireSeedPassword();
 const results = [];
 const check = (label, ok, detail = "") => {
   results.push({ label, ok });
@@ -16,22 +22,14 @@ const check = (label, ok, detail = "") => {
   return ok;
 };
 
-const login = async (email, password = SEED) => {
-  const r = await fetch(`${API}/api/auth/login`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  return { status: r.status, body: await r.json().catch(() => ({})) };
-};
-const api = async (tok, path, init = {}) => {
-  const r = await fetch(`${API}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}`, ...(init.headers ?? {}) },
-  });
-  return { status: r.status, text: await r.text() };
+// { status, body, auth } - `auth` is the session from Set-Cookie, or null.
+const login = (email, password = SEED) => apiLogin(email, password);
+const api = async (auth, path, init = {}) => {
+  const { status, text } = await apiCall(auth, path, init);
+  return { status, text };
 };
 
-const owner = (await login("owner@pouchwale.com")).body.access_token;
+const owner = (await login("owner@pouchwale.com")).auth;
 const roster = JSON.parse((await api(owner, "/api/users?page_size=200")).text).items;
 const target = roster.find((u) => u.name === "Shivani Patel");
 const ORIGINAL_EMAIL = target.email;
@@ -39,7 +37,7 @@ const NEW_EMAIL = `shivani.qa.${Date.now().toString().slice(-6)}@pouchwale.com`;
 const NEW_PASSWORD = `Qa${Date.now().toString().slice(-8)}Xz`;
 const before = { role: target.role, team: target.team_name, manager: target.manager_name };
 
-const browser = await chromium.launch({ channel: "chrome" });
+const browser = await chromium.launch({ channel: BROWSER_CHANNEL });
 const ctx = await browser.newContext({ viewport: { width: 1440, height: 950 } });
 const page = await ctx.newPage();
 const errors = [];
@@ -51,7 +49,7 @@ async function signIn(email, password = SEED) {
   await page.fill("#email", email);
   await page.fill("#password", password);
   await page.click('button[type="submit"]');
-  await page.waitForURL(/\/(dashboard|change-password)/, { timeout: 25000 });
+  await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 25000 });
 }
 async function signOut() {
   await page.click('[data-testid="user-menu-trigger"]');
@@ -73,8 +71,8 @@ let panel = await page.locator('[role="dialog"]').innerText();
 check("clicking a person opens their account details", panel.includes(ORIGINAL_EMAIL));
 check("panel shows role, team and reporting line",
   panel.includes("Reports to") && panel.includes("Team") && panel.includes("Role"));
-check("panel offers Edit account and Set password",
-  panel.includes("Edit account") && panel.includes("Set password"));
+check("panel offers Edit account and Change password",
+  panel.includes("Edit account") && panel.includes("Change password"));
 check("panel never shows a password or hash",
   !/\$2[aby]\$|hashed_password|ChangeMe/i.test(panel));
 
@@ -112,7 +110,7 @@ await page.keyboard.press("Escape");
 
 console.log("\n=== 3. PASSWORD SET ===");
 await openUser("Shivani Patel");
-await page.click('button:has-text("Set password")');
+await page.click('[role="dialog"] button:has-text("Change password")');
 await page.waitForSelector("#new-password", { timeout: 10000 });
 const pwDialog = await page.locator('[role="dialog"]').innerText();
 check("password dialog never shows an existing password",
@@ -120,7 +118,7 @@ check("password dialog never shows an existing password",
 await page.fill("#new-password", NEW_PASSWORD);
 await page.fill("#confirm-password", `${NEW_PASSWORD}-wrong`);
 check("mismatched confirmation blocks saving",
-  await page.locator('button:has-text("Set password")').last().isDisabled());
+  await page.locator('button[form="reset-form"]').isDisabled());
 await page.fill("#confirm-password", NEW_PASSWORD);
 await page.click('button[form="reset-form"]');
 await page.waitForTimeout(2500);
@@ -133,13 +131,13 @@ check("login response carries no password or hash",
 check("role unchanged after the password change", fresh.body?.user?.role === before.role);
 
 console.log("\n=== 4. AUTHORIZATION (server-side) ===");
-const bde = (await login("parth.fulvani@pouchwale.com")).body.access_token;
+const bde = (await login("parth.fulvani@pouchwale.com")).auth;
 const asBde = await api(bde, `/api/users/${target.id}`, {
   method: "PATCH", body: JSON.stringify({ email: "hijack@pouchwale.com" }),
 });
 check("a field user cannot edit another account", [401, 403, 404].includes(asBde.status), String(asBde.status));
 const resetAsBde = await api(bde, `/api/users/${target.id}/reset-password`, {
-  method: "POST", body: JSON.stringify({ new_password: "Hijack@2026x" }),
+  method: "POST", body: JSON.stringify({ new_password: "Hijack2026xyz", confirm_password: "Hijack2026xyz" }),
 });
 check("a field user cannot reset another password", [401, 403, 404].includes(resetAsBde.status), String(resetAsBde.status));
 const listing = await api(owner, "/api/users?page_size=200");
@@ -151,7 +149,7 @@ await api(owner, `/api/users/${target.id}`, {
   method: "PATCH", body: JSON.stringify({ email: ORIGINAL_EMAIL }),
 });
 await api(owner, `/api/users/${target.id}/reset-password`, {
-  method: "POST", body: JSON.stringify({ new_password: SEED, must_change: false }),
+  method: "POST", body: JSON.stringify({ new_password: SEED, confirm_password: SEED, must_change: false }),
 });
 const restored = await login(ORIGINAL_EMAIL);
 check("demo account restored to its original email and password", restored.status === 200);
@@ -182,7 +180,10 @@ for (const [who, email] of [
   await page.goto(`${APP}/dashboard`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1200);
   const launcher = await page.locator('[aria-label="Ask the assistant"]').count();
-  if (!launcher) broken.push("assistant launcher missing");
+  // With CHAT_ENABLED=false the feature leaves no trace, by design.
+  const chatAvailable = JSON.parse((await api(owner, "/api/chat/status")).text || "{}").available;
+  if (chatAvailable && !launcher) broken.push("assistant launcher missing");
+  if (!chatAvailable && launcher) broken.push("assistant launcher shown while chat is off");
   await signOut();
   check(`${who}: all modules render, assistant present, sign-out works`, broken.length === 0, broken.join(", "));
 }

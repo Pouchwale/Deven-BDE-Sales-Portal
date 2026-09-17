@@ -8,6 +8,7 @@ import { api, errorMessage, type SapImportResult, type SapSyncStatus } from "@/l
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { pollWhileVisible } from "@/lib/visiblePoll";
 import { isSuperAdmin } from "@/lib/roles";
 import { useToast } from "@/lib/toast";
 
@@ -80,11 +81,12 @@ export function SapImportButton({ onImported }: { onImported?: () => void }) {
     }
 
     void poll();
-    const timer = window.setInterval(poll, STATUS_POLL_MS);
+    // Nobody reads a status line in a background tab; catch up on return.
+    const stopPolling = pollWhileVisible(() => void poll(), STATUS_POLL_MS);
     return () => {
       cancelled = true;
       controller.abort();
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [allowed]);
 
@@ -107,7 +109,7 @@ export function SapImportButton({ onImported }: { onImported?: () => void }) {
     }
   }
 
-  const linked = Boolean(status?.linked_file);
+  const linked = Boolean(status?.linked);
   const healthy = linked && status?.file_found && !status.last_error;
 
   return (
@@ -116,7 +118,7 @@ export function SapImportButton({ onImported }: { onImported?: () => void }) {
         <input
           ref={input}
           type="file"
-          accept=".xlsx,.xlsm,.xls,.csv"
+          accept=".xlsx,.xlsm,.csv"
           hidden
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -146,7 +148,7 @@ export function SapImportButton({ onImported }: { onImported?: () => void }) {
       {status ? (
         <p
           className="flex max-w-xl items-start gap-1.5 text-[12px] leading-snug text-muted"
-          title={status.linked_file ?? undefined}
+          title={status.linked_file_name ?? undefined}
         >
           <span
             aria-hidden
@@ -159,7 +161,7 @@ export function SapImportButton({ onImported }: { onImported?: () => void }) {
             {!linked ? (
               "No live workbook linked (SAP_DATA_FILE) - use Upload SAP file."
             ) : !status.file_found ? (
-              <>Linked workbook not found: {status.linked_file}</>
+              <>Linked workbook not found: {status.linked_file_name}</>
             ) : (
               <>
                 Linked to <span className="font-medium text-content">{status.linked_file_name}</span>

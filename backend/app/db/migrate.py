@@ -54,8 +54,34 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 
 def checksum(path: Path) -> str:
-    """Hash the raw file, before rendering, so it is dialect independent."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    """Hash the file's text, before rendering, so it is dialect independent.
+
+    Line endings are normalised first: Git stores these files with LF but a
+    Windows checkout may carry CRLF, and a migration applied from one and
+    checked from the other is still the same migration. Without this, a
+    database migrated on a developer's PC refused to start on a Linux host.
+    """
+    return hashlib.sha256(_normalised(path)).hexdigest()
+
+
+def _normalised(path: Path) -> bytes:
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
+def _legacy_checksums(path: Path) -> set[str]:
+    """Checksums an older version of this runner may have stored for the
+    same file: the raw bytes as they were on that machine, either ending."""
+    text_lf = _normalised(path)
+    return {
+        hashlib.sha256(text_lf).hexdigest(),
+        hashlib.sha256(text_lf.replace(b"\n", b"\r\n")).hexdigest(),
+    }
+
+
+def matches(stored: str, path: Path) -> bool:
+    """Does the stored checksum belong to this file, whatever the line endings
+    were when it was applied?"""
+    return stored == checksum(path) or stored in _legacy_checksums(path)
 
 
 def ensure_tracking_table(engine: Engine) -> None:
@@ -79,7 +105,7 @@ def pending(engine: Engine) -> list[Path]:
         if version not in done:
             out.append(path)
             continue
-        if done[version] != checksum(path):
+        if not matches(done[version], path):
             raise RuntimeError(
                 f"Migration {path.name} has changed since it was applied.\n"
                 "Applied migrations are immutable - the database has already "
@@ -190,7 +216,7 @@ def status(engine: Engine) -> None:
         version = version_of(path)
         if version not in done:
             state = "PENDING"
-        elif done[version] != checksum(path):
+        elif not matches(done[version], path):
             state = "MODIFIED AFTER APPLY (error)"
         else:
             state = "applied"
@@ -216,7 +242,7 @@ def check(engine: Engine) -> int:
         version = version_of(path)
         if version not in done:
             todo.append(path)
-        elif done[version] != checksum(path):
+        elif not matches(done[version], path):
             modified.append(path.name)
     if modified:
         print(

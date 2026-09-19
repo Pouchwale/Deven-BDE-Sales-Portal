@@ -130,9 +130,18 @@ def login(
     # database, a missed startup sync or an earlier lockout never keeps the
     # Super Admin out.
     if super_admin_env.matches_env(login_name, payload.password):
-        if super_admin_env.sync(db) in ("created", "updated"):
+        if super_admin_env.sync(db) in ("created", "updated", "adopted"):
             db.commit()
         user = db.execute(select(User).where(lookup)).scalar_one_or_none()
+        # The env password is still this account's password: a lockout from
+        # earlier failed attempts must not keep the Super Admin out.
+        if (
+            user is not None
+            and user.locked_until is not None
+            and verify_password(payload.password, user.hashed_password)
+        ):
+            user.locked_until = None
+            user.failed_login_count = 0
 
     if user is None:
         burn_password_check(payload.password)

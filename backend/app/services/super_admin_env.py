@@ -1,22 +1,25 @@
-"""The Super Admin's sign-in, owned by the environment.
+"""The Super Admin's sign-in, seeded from the environment.
 
-SUPER_ADMIN_USERNAME and SUPER_ADMIN_PASSWORD in the env file are the source
-of truth for the Super Admin account. Every time the backend starts:
+SUPER_ADMIN_USERNAME and SUPER_ADMIN_PASSWORD set the Super Admin account's
+sign-in - but only when they are NEW:
 
-* the account with that username (which must be a SUPER_ADMIN) gets that
-  password, if it does not already have it - and is unlocked and reactivated;
-* if no account has that username yet, the one active Super Admin is renamed
-  to it; with none at all, one is created (SUPER_ADMIN_EMAIL optional).
+* on an empty database, the Super Admin is created from them;
+* when either value is changed in the environment (e.g. on the Render
+  dashboard), the change is applied once at the next start: the account with
+  that username gets that password, is unlocked and reactivated; if no
+  account has the username, the one active Super Admin is renamed to it.
 
-The same happens at sign-in when the env username and password are typed
-exactly, so the Super Admin can always get in with them.
+Unchanged values are never re-applied. Previously they were applied on every
+restart and every deploy, which silently undid any username or password
+change made in the portal - and the new sign-in then "stopped working" after
+each deploy. What was last applied is remembered as a bcrypt hash in
+app_settings (never the password itself).
 
-Changing the password in the env file and restarting is therefore how the
-Super Admin password is changed. Every change is audited; nothing is logged
-that contains the password.
+Every change is audited; nothing is logged that contains the password.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
 
 from sqlalchemy import select
@@ -26,11 +29,12 @@ from app.core import password_vault
 from app.core.config import settings
 from app.core.constants import AuditAction, EntityType, Role
 from app.core.logging import get_logger
-from app.core.security import verify_password
+from app.core.security import hash_password, verify_password
 from app.core.sessions import RevokeReason, revoke_user_sessions
 from app.core.usernames import InvalidUsername, validate_username
 from app.db.base import utcnow
 from app.models.org import User
+from app.models.system import AppSetting
 from app.seeds.roster import EMAIL_DOMAIN
 from app.services import audit
 
@@ -53,9 +57,8 @@ def _env_credentials() -> tuple[str, str]:
 def matches_env(login_name: str, password: str) -> bool:
     """Is this sign-in exactly the env Super Admin's username and password?
 
-    Used at sign-in so the env credentials work even if the startup sync did
-    not run (or the account was locked since): whoever holds the env password
-    is, by definition, the Super Admin.
+    Used at sign-in so NEW env credentials work even if the startup sync did
+    not run. Values already applied are not re-applied here either (see sync).
     """
     raw_username, env_password = _env_credentials()
     if not raw_username or not env_password:
@@ -69,9 +72,39 @@ def matches_env(login_name: str, password: str) -> bool:
     )
 
 
+#: app_settings key holding a bcrypt hash of the env values last applied.
+#: Not one of runtime_settings.DEFAULTS, so it is never listed or editable.
+APPLIED_KEY = "internal.super_admin_env_applied"
+
+
+def _fingerprint_source(username: str, password: str) -> str:
+    # Hashed first so the bcrypt input stays under its 72-byte limit.
+    return hashlib.sha256(f"{username}\n{password}".encode("utf-8")).hexdigest()
+
+
+def _already_applied(db: Session, username: str, password: str) -> bool:
+    row = db.get(AppSetting, APPLIED_KEY)
+    return bool(row and row.value and verify_password(_fingerprint_source(username, password), row.value))
+
+
+def _remember_applied(db: Session, username: str, password: str) -> None:
+    value = hash_password(_fingerprint_source(username, password))
+    row = db.get(AppSetting, APPLIED_KEY)
+    if row is None:
+        db.add(AppSetting(
+            key=APPLIED_KEY,
+            value=value,
+            value_type="str",
+            description="Internal: which SUPER_ADMIN_* env values were last applied (hash).",
+        ))
+    else:
+        row.value = value
+    db.flush()
+
+
 def sync(db: Session) -> str:
-    """Apply the env credentials. Returns what happened, for logs and tests.
-    Commits nothing - the caller does."""
+    """Apply the env credentials if they are new. Returns what happened, for
+    logs and tests. Commits nothing - the caller does."""
     raw_username, password = _env_credentials()
     if not raw_username or not password:
         return "not-configured"
@@ -81,6 +114,30 @@ def sync(db: Session) -> str:
         log.error("SUPER_ADMIN_USERNAME is not a valid username; Super Admin not synced")
         return "invalid-username"
 
+    if _already_applied(db, username, password):
+        # Same values as last time: whatever was changed in the portal since
+        # stands. This is what stops a deploy undoing a password change.
+        return "unchanged"
+
+    has_super_admin = db.execute(
+        select(User.id).where(User.role == Role.SUPER_ADMIN, User.is_active.is_(True))
+    ).first() is not None
+    if db.get(AppSetting, APPLIED_KEY) is None and has_super_admin:
+        # First run of this rule on a database that already has a Super Admin:
+        # take the account as it is. Applying here would rename or reset an
+        # account somebody may just have changed in the portal.
+        _remember_applied(db, username, password)
+        log.info("Super Admin env values recorded; existing account left as it is")
+        return "adopted"
+
+    result = _apply(db, username, password)
+    if result in ("created", "updated", "unchanged"):
+        _remember_applied(db, username, password)
+    return result
+
+
+def _apply(db: Session, username: str, password: str) -> str:
+    """Make the Super Admin account match these credentials."""
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
 
     if user is not None and user.role != Role.SUPER_ADMIN:

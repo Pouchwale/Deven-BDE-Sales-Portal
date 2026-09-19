@@ -1,0 +1,9 @@
+' Paste this into the SAP workbook's "ThisWorkbook" code window
+' (VBA editor: Alt+F11 -> double-click ThisWorkbook on the left).
+'
+' After every save - which is what the daily SAP refresh ends with - the
+' workbook uploads itself to the portal. See the PortalUpload module.
+
+Private Sub Workbook_AfterSave(ByVal Success As Boolean)
+    If Success Then PortalUpload.UploadAfterSave
+End Sub

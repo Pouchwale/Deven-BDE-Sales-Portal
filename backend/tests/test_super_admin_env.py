@@ -1,6 +1,8 @@
-"""The Super Admin's username and password come from the env file."""
+"""The Super Admin's username and password come from the env file - applied
+when they are new, never re-applied over a change made in the portal."""
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 
 from app.core import password_vault
@@ -15,6 +17,13 @@ def _owner(db) -> User:
     return db.execute(
         select(User).where(User.role == Role.SUPER_ADMIN, User.is_active.is_(True))
     ).scalars().first()
+
+
+@pytest.fixture(autouse=True)
+def _env_values_changed_since_last_start(db) -> None:
+    """Most tests here are about applying NEW env values, so start from
+    "different values were applied before"."""
+    super_admin_env._remember_applied(db, "previous-admin", "previous password")
 
 
 def _configure(monkeypatch, username: str | None, password: str, **extra: str) -> None:
@@ -53,7 +62,7 @@ def test_env_username_renames_the_only_super_admin(db, monkeypatch) -> None:
     assert owner.username == "portalboss"
 
 
-def test_lock_and_deactivation_are_cleared(db, monkeypatch) -> None:
+def test_new_env_values_clear_a_lock(db, monkeypatch) -> None:
     from app.db.base import utcnow
 
     owner = _owner(db)
@@ -61,8 +70,58 @@ def test_lock_and_deactivation_are_cleared(db, monkeypatch) -> None:
     super_admin_env.sync(db)
     owner.locked_until = utcnow()
     owner.failed_login_count = 4
+    _configure(monkeypatch, owner.username, "Unlock Me 6")
     assert super_admin_env.sync(db) == "updated"
     assert owner.locked_until is None and owner.failed_login_count == 0
+
+
+# ------------------------------------- portal changes survive restarts/deploys
+def test_a_restart_does_not_undo_a_password_changed_in_the_portal(db, monkeypatch) -> None:
+    owner = _owner(db)
+    _configure(monkeypatch, owner.username, "Env Value 1")
+    assert super_admin_env.sync(db) == "updated"
+    password_vault.set_password(owner, "Changed In Portal 2")
+    db.flush()
+    # The backend restarts (or is redeployed) with the same env values.
+    assert super_admin_env.sync(db) == "unchanged"
+    assert verify_password("Changed In Portal 2", owner.hashed_password)
+
+
+def test_a_restart_does_not_undo_a_username_changed_in_the_portal(db, monkeypatch) -> None:
+    owner = _owner(db)
+    _configure(monkeypatch, owner.username, "Env Value 1")
+    super_admin_env.sync(db)
+    owner.username = "admin"
+    db.flush()
+    assert super_admin_env.sync(db) == "unchanged"
+    assert owner.username == "admin"
+
+
+def test_first_start_with_this_rule_keeps_the_existing_account(db, monkeypatch) -> None:
+    """A database that already has a Super Admin but no record of applied env
+    values: take the account as it is, do not rename or reset it."""
+    from app.models.system import AppSetting
+
+    db.delete(db.get(AppSetting, super_admin_env.APPLIED_KEY))
+    db.flush()
+    owner = _owner(db)
+    before_hash, before_name = owner.hashed_password, owner.username
+    _configure(monkeypatch, "someone-else", "Other Pass 3")
+    assert super_admin_env.sync(db) == "adopted"
+    assert owner.hashed_password == before_hash and owner.username == before_name
+    # ...and only a later edit of the env values is applied.
+    _configure(monkeypatch, "someone-else", "Other Pass 4")
+    assert super_admin_env.sync(db) == "updated"
+
+
+def test_old_env_credentials_at_sign_in_do_not_undo_a_portal_change(client, db, monkeypatch) -> None:
+    owner = _owner(db)
+    _configure(monkeypatch, owner.username, "Env Value 1")
+    super_admin_env.sync(db)
+    password_vault.set_password(owner, "Changed In Portal 2")
+    db.commit()
+    assert _login(client, owner.username, "Env Value 1").status_code == 401
+    assert _login(client, owner.username, "Changed In Portal 2").status_code == 200
 
 
 def test_username_of_another_role_is_refused(db, users, monkeypatch) -> None:

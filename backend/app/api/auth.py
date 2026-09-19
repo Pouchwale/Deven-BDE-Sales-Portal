@@ -11,6 +11,7 @@ from datetime import timedelta
 from fastapi import APIRouter, Request, Response, status
 from sqlalchemy import func, select
 
+from app.core import password_vault
 from app.core import sessions as session_store
 from app.core.config import settings
 from app.core.constants import AuditAction, EntityType, ErrorCode
@@ -172,6 +173,9 @@ def login(
     user.locked_until = None
     user.last_login_at = now
     user.last_login_ip = ip
+    # The password was just proven; keep the Super Admin's readable copy of it
+    # current (repairs copies made under a different key).
+    password_vault.refresh_copy(user, payload.password)
     row, raw_secret = session_store.create_session(
         db, user, ip_address=ip, user_agent=request.headers.get("User-Agent")
     )

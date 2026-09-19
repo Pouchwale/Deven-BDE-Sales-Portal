@@ -110,3 +110,30 @@ def test_production_refuses_an_invalid_view_key() -> None:
         PASSWORD_VIEW_KEY="not-a-fernet-key",
     )
     assert "PASSWORD_VIEW_KEY is not a valid Fernet key" in settings.production_problems()
+
+
+def test_without_a_view_key_the_key_is_derived_from_secret_key(monkeypatch) -> None:
+    """A host where nobody set PASSWORD_VIEW_KEY still stores readable copies."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PASSWORD_VIEW_KEY", "")
+    token = password_vault.encrypt("works anyway")
+    assert token and "works anyway" not in token
+    assert password_vault.decrypt(token) == "works anyway"
+
+
+def test_a_copy_made_under_another_key_repairs_itself_at_sign_in(client, users, db) -> None:
+    from cryptography.fernet import Fernet
+
+    target = db.execute(select(User).where(User.email == users["Nidhi Ratnakar"].email)).scalar_one()
+    # A copy another server made, under a key this one does not have.
+    target.password_encrypted = Fernet(Fernet.generate_key()).encrypt(SEED_PASSWORD.encode()).decode()
+    db.commit()
+    headers = super_admin_headers(client)
+    assert reveal(client, headers, target.id).json() == {"password": None}
+
+    signed_in = client.post(
+        "/api/auth/login", json={"identifier": target.email, "password": SEED_PASSWORD}
+    )
+    assert signed_in.status_code == 200, signed_in.text
+    assert reveal(client, super_admin_headers(client), target.id).json() == {"password": SEED_PASSWORD}

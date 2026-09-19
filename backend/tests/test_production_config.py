@@ -154,6 +154,23 @@ def test_blank_secret_key_outside_production_is_random_not_a_shared_default() ->
     assert a.SECRET_KEY not in KNOWN_DEFAULT_SECRETS
 
 
+def test_blank_secret_key_with_a_database_password_survives_a_restart() -> None:
+    """A host that sleeps and wakes restarts the process; a random key there
+    broke every signed-in person's CSRF token on each wake."""
+    url = "postgresql+psycopg2://app:s3cret-pass@db.internal:5432/portal"
+    a = Settings(_env_file=None, ENV="development", DATABASE_URL=url, SECRET_KEY="")
+    b = Settings(_env_file=None, ENV="development", DATABASE_URL=url, SECRET_KEY="")
+    other = Settings(
+        _env_file=None,
+        ENV="development",
+        DATABASE_URL=url.replace("s3cret-pass", "another-pass"),
+        SECRET_KEY="",
+    )
+    assert a.SECRET_KEY == b.SECRET_KEY
+    assert a.SECRET_KEY != other.SECRET_KEY
+    assert len(a.SECRET_KEY) >= 32 and "s3cret-pass" not in a.SECRET_KEY
+
+
 def test_development_is_not_validated_as_production() -> None:
     config = Settings(_env_file=None, ENV="development", DATABASE_URL="sqlite://")
     config.validate_for_production()  # no-op outside production

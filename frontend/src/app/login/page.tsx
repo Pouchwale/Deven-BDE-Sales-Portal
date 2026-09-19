@@ -18,11 +18,26 @@ const GENERIC_FAILURE = "Incorrect username or password.";
 function signInErrorMessage(cause: unknown): string {
   if (cause instanceof ApiError) {
     if (cause.code === "RATE_LIMITED") return "Too many sign-in attempts. Try again later.";
-    if (cause.code === "NETWORK_ERROR") return cause.message;
+    if (serverUnavailable(cause)) {
+      return "The server is taking too long to respond. Please try again in a minute.";
+    }
     if (cause.status === 401 || cause.status === 422) return GENERIC_FAILURE;
   }
   return "Sign-in failed. Please try again.";
 }
+
+/** The backend did not answer at all: asleep, restarting or unreachable. Not
+ *  a verdict on the credentials, so it is worth trying again. A real server
+ *  error carries the portal's own error code; a gateway failure does not. */
+function serverUnavailable(cause: ApiError): boolean {
+  if (cause.code === "NETWORK_ERROR") return true;
+  if ([502, 503, 504].includes(cause.status)) return true;
+  return cause.status === 500 && cause.code === "UNKNOWN";
+}
+
+/** A sleeping server wakes within about a minute; keep trying that long. */
+const WAKE_RETRY_MS = 90_000;
+const WAKE_RETRY_EVERY_MS = 5_000;
 
 export default function LoginPage() {
   const { user, loading, signIn } = useAuth();
@@ -32,6 +47,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [waking, setWaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Already signed in? Do not make them look at a sign-in form.
@@ -43,13 +59,27 @@ export default function LoginPage() {
 
   async function attemptSignIn(withIdentifier: string, withPassword: string) {
     setError(null);
+    setWaking(false);
     setSubmitting(true);
-    try {
-      const signedIn = await signIn(withIdentifier.trim(), withPassword);
-      router.replace(signedIn.must_change_password ? "/set-password" : "/dashboard");
-    } catch (cause) {
-      setError(signInErrorMessage(cause));
-      setSubmitting(false);
+    const giveUpAt = Date.now() + WAKE_RETRY_MS;
+    for (;;) {
+      try {
+        const signedIn = await signIn(withIdentifier.trim(), withPassword);
+        router.replace(signedIn.must_change_password ? "/set-password" : "/dashboard");
+        return;
+      } catch (cause) {
+        // The server is asleep or restarting: wait and try again rather than
+        // report a failure the person can do nothing about.
+        if (cause instanceof ApiError && serverUnavailable(cause) && Date.now() < giveUpAt) {
+          setWaking(true);
+          await new Promise((resolve) => setTimeout(resolve, WAKE_RETRY_EVERY_MS));
+          continue;
+        }
+        setWaking(false);
+        setError(signInErrorMessage(cause));
+        setSubmitting(false);
+        return;
+      }
     }
   }
 
@@ -189,9 +219,15 @@ export default function LoginPage() {
             </Field>
 
             {error ? <InlineError>{error}</InlineError> : null}
+            {waking ? (
+              <p className="text-[12.5px] text-muted" role="status">
+                The server is starting up - this can take up to a minute. Signing you in
+                as soon as it is ready…
+              </p>
+            ) : null}
 
             <Button type="submit" size="lg" className="w-full" loading={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
+              {waking ? "Starting server…" : submitting ? "Signing in…" : "Sign in"}
               {submitting ? null : <ArrowRight className="size-4" aria-hidden />}
             </Button>
           </form>

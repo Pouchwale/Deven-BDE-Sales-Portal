@@ -13,6 +13,7 @@ the values are secrets.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 import secrets
 from functools import cached_property
@@ -242,10 +243,25 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _ephemeral_secret_key(self) -> "Settings":
-        """Outside production, a blank SECRET_KEY becomes a random per-process
-        key. Production is refused instead - see `production_problems`."""
+        """Outside production, a blank SECRET_KEY is filled in; production is
+        refused instead - see `production_problems`.
+
+        When the database URL carries a password, the key is derived from it,
+        so it is secret AND survives a restart. A host that sleeps and wakes
+        (Render's free tier) restarts the process each time, and a fresh
+        random key there invalidated every signed-in person's CSRF token -
+        every save failed with "could not be verified" until they signed in
+        again. Without a password in the URL (SQLite, tests) it stays random.
+        """
         if not self.SECRET_KEY.strip() and self.ENV != "production":
-            self.SECRET_KEY = secrets.token_urlsafe(48)
+            url = self.DATABASE_URL.strip()
+            has_password = "://" in url and ":" in url.split("://", 1)[1].split("@", 1)[0] and "@" in url
+            if has_password:
+                self.SECRET_KEY = hashlib.sha256(
+                    b"bde-portal-derived-secret-key:" + url.encode("utf-8")
+                ).hexdigest()
+            else:
+                self.SECRET_KEY = secrets.token_urlsafe(48)
             self._secret_key_generated = True
         return self
 

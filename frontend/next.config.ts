@@ -112,6 +112,12 @@ const nextConfig: NextConfig = {
   // 5 s. Caddy compresses in production (and sends /api straight to uvicorn),
   // so nothing is lost by switching it off here.
   compress: false,
+  experimental: {
+    // How long the /api rewrite waits for the backend. Next's default is 30 s,
+    // but a sleeping free-tier backend takes up to a minute to wake, so the
+    // first sign-in after a quiet spell failed with "Failed to proxy".
+    proxyTimeout: 120_000,
+  },
   // Type errors and lint errors fail the build by default in Next 16, which
   // is what we want; there is nothing to override here.
 

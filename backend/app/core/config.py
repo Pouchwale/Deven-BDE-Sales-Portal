@@ -432,6 +432,16 @@ class Settings(BaseSettings):
     SAP_AUTO_SYNC: bool = True
     SAP_SYNC_INTERVAL_SECONDS: int = 30
 
+    # ----------------------------------------------------------- keepalive
+    #: Ping this backend's own public URL on a timer so Render's free tier
+    #: never idles it out (app/services/keepalive.py). Off by default, so it
+    #: never runs in local dev or a Render preview.
+    ENABLE_KEEPALIVE: bool = False
+    #: The backend's public HTTPS /health URL. Must go through Render's router:
+    #: a localhost call does not reset its idle timer. Blank = no keepalive.
+    SELF_PUBLIC_URL: str = ""
+    KEEPALIVE_INTERVAL_SECONDS: int = 600
+
     @property
     def sap_data_dir(self) -> Path:
         return DATA_DIR / "sap"

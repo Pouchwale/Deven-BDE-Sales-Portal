@@ -3,7 +3,7 @@
 Startup never creates tables and never seeds: the schema comes from
 `python -m app.db.migrate upgrade`, and accounts from the seed (development)
 or `python -m app.seeds.bootstrap_admin` (production). The lifespan only
-starts the SAP file watcher.
+starts the SAP file watcher and, on a host that asks for it, the keepalive.
 
 Run uvicorn with `--no-access-log`: RequestContextMiddleware writes the
 access line itself, without the query string uvicorn's own line includes.
@@ -26,7 +26,7 @@ from app.core.config import APP_VERSION, Settings, settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
-from app.services import sap_sync, super_admin_env
+from app.services import keepalive, sap_sync, super_admin_env
 
 configure_logging(settings.LOG_LEVEL, settings.log_format)
 log = get_logger("app.startup")
@@ -92,7 +92,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Keeps the portal in step with the live SAP workbook; a no-op unless
     # SAP_DATA_FILE is set and SAP_AUTO_SYNC is on.
     sap_sync.start()
+    # Pings our own public URL so Render's free tier never idles us out; a
+    # no-op unless ENABLE_KEEPALIVE is on and SELF_PUBLIC_URL is set.
+    keepalive.start()
     yield
+    await keepalive.stop()
     sap_sync.stop()
 
 

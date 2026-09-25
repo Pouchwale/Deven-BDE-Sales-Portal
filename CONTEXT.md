@@ -68,30 +68,29 @@ Render dashboard.
    `UserDetailPanel` in `frontend/src/components/admin/UserActionDialogs.tsx`.
    Only offered when `can_act_on`. `tsc` and `eslint` pass; not yet viewed in a
    browser.
-2. **Keep-alive cron job (the one to use)** — `render.yaml` (Blueprint, repo
-   root) declares cron `portal-keepalive`, schedule `*/14 3-14 * * 1-6` (UTC =
-   08:30–20:30 IST, Mon–Sat), running `deploy/render/keepalive.py` (stdlib only,
-   3 attempts 30 s apart, non-zero exit on failure) against
-   `PING_URLS=https://deven-bde-sales-portal-frontend.onrender.com/health`.
-   The frontend proxies `/health` to the backend, so one ping keeps both awake.
-   - Working hours only: both services ≈ 624 of Render's 750 free
-     instance-hours a month. Round the clock would be ≈ 1,440 and Render would
-     suspend them for the rest of the month.
-   - Render cron jobs are paid (starter, ~$1/month minimum).
-   - To enable: Render → New → Blueprint → repo `Pouchwale/Deven-BDE-Sales-Portal`,
-     branch `main` → Apply. Verified by running the script against the live
-     site (200).
-   - The user wants the cron job kept in the project.
-3. **Backend self-keepalive (built, keep OFF on the free plan)** —
+2. **Free keepalive (no Render cron — Render cron jobs are paid)** —
    `backend/app/services/keepalive.py`, started and cancelled in the lifespan in
-   `backend/app/main.py`. One asyncio task that GETs `SELF_PUBLIC_URL` every
-   `KEEPALIVE_INTERVAL_SECONDS` (default 600, 10 s timeout, one log line per
-   ping, never raises). Runs only when `ENABLE_KEEPALIVE=true`; a blank,
-   localhost or non-https URL logs one warning and is skipped. Tests:
-   `backend/tests/test_keepalive.py`.
-   - It runs 24/7, so together with the cron job it exceeds the free hours.
-     Use it instead of the cron job only if the frontend moves to a paid plan
-     (or the cron job is dropped).
+   `backend/app/main.py`. One asyncio task that, every
+   `KEEPALIVE_INTERVAL_SECONDS` (600), GETs the frontend's `/health` (proxied to
+   the backend, so both stay awake) and the backend's own `RENDER_EXTERNAL_URL`.
+   - **Needs no Render settings:** `ENABLE_KEEPALIVE=auto` (default) = on when
+     Render's own `RENDER` env var is set, off on pull-request previews
+     (`IS_PULL_REQUEST=true`) and in local dev. `true`/`false` force it.
+   - Only pings 08:30–20:30 IST, Mon–Sat (`KEEPALIVE_ACTIVE_HOURS`,
+     `KEEPALIVE_ACTIVE_DAYS`, `KEEPALIVE_UTC_OFFSET_MINUTES=330`): both services
+     ≈ 624 of Render's 750 free instance-hours a month. 24/7 would be ≈ 1,440 and
+     Render would suspend them.
+   - Localhost / non-https URLs are refused (a loopback call never resets
+     Render's idle timer). One log line per ping; never raises.
+   - Tests: `backend/tests/test_keepalive.py`.
+3. **Morning wake-up** — `.github/workflows/wake-portal.yml`, GitHub Actions,
+   02:50 UTC = 08:20 IST Mon–Sat (+ manual "Run workflow"). Pings the frontend
+   `/health` until 200 (10 tries, 30 s apart). About 1 min/day of free Actions
+   minutes. After that the backend loop keeps things awake.
+   - `render.yaml` and `deploy/render/keepalive.py` (the paid Render cron job)
+     were deleted. If the Blueprint was ever applied, delete the
+     `portal-keepalive` cron job in the Render dashboard.
+   - The user wants zero spend anywhere in the project.
 4. **Login page** — `frontend/src/app/login/page.tsx`: Render's 429
    `hibernate-rate-limited` is retried during the wake loop and reported as
    "server is waking up", not as a wrong password; 502/503/504, network errors
@@ -117,18 +116,22 @@ User preference: commit and push to `main` after every change.
   the frontend a few minutes later; frontend `/health`, `/api/health/db`
   (postgresql) and `/login` all returned 200. So the free hours were **not**
   exhausted — the 429 was Render temporarily refusing to wake a sleeping
-  service. The keep-alive cron job (above) prevents it during working hours.
+  service. The free keepalive (above) prevents it during working hours.
 - **The Render backend reports `"env": "development"`** in `/health` (only
   shown outside production). `ENV=production` is not set there, so the
   production safeguards in `backend/app/core/config.py` are off. The user should
   set it in the Render backend env (check `production_warnings()` first).
 - Next steps for the user:
-  1. Apply the `render.yaml` Blueprint (cron job). Leave `ENABLE_KEEPALIVE`
-     off on the backend while on the free plan.
-  2. Render backend env: `ENV=production` (after reviewing what it enforces).
-  3. If Admin still fails once the site is up: probably a lockout — wait 15
+  1. **Render free Postgres expires 30 days after creation** (then 14 days'
+     grace, then deleted with all data). This DB was set up ~2026-09-17, so it
+     expires ~2026-10-17. To stay free: move the data to a free Postgres that
+     does not expire (e.g. Neon) and point the backend's `DATABASE_URL` at it.
+  2. Nothing to set for the keepalive. If `ENABLE_KEEPALIVE` was added on
+     Render earlier, remove it (or set `auto`).
+  3. Render backend env: `ENV=production` (after reviewing what it enforces).
+  4. If Admin still fails once the site is up: probably a lockout — wait 15
      min, or set a new `SUPER_ADMIN_PASSWORD` in Render.
-  4. Set `PASSWORD_VIEW_KEY` on Render to match local (see above).
+  5. Set `PASSWORD_VIEW_KEY` on Render to match local (see above).
 - Checked and ruled out on this PC: no SAP uploader scheduled task, no
   `%APPDATA%\bde-portal` config — so the Excel/Python SAP uploader
   (`deploy/sync/`), which signs in as the Super Admin, is not locking the account
@@ -146,9 +149,6 @@ cd frontend && npx tsc --noEmit -p . && npx eslint src
 
 # Backend tests
 cd backend && .venv/Scripts/python.exe -m pytest
-
-# Cron script against the live site
-PING_URLS=https://deven-bde-sales-portal-frontend.onrender.com/health backend/.venv/Scripts/python.exe deploy/render/keepalive.py
 
 # Keepalive tests only
 cd backend && .venv/Scripts/python.exe -m pytest tests/test_keepalive.py -q -p no:cacheprovider

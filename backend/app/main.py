@@ -92,8 +92,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Keeps the portal in step with the live SAP workbook; a no-op unless
     # SAP_DATA_FILE is set and SAP_AUTO_SYNC is on.
     sap_sync.start()
-    # Pings our own public URL so Render's free tier never idles us out; a
-    # no-op unless ENABLE_KEEPALIVE is on and SELF_PUBLIC_URL is set.
+    # Pings the portal's public URLs in working hours so Render's free tier
+    # never idles it out; on by itself on Render only, never in local dev.
     keepalive.start()
     yield
     await keepalive.stop()

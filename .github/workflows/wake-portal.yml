@@ -1,0 +1,35 @@
+# Wakes the Render portal at 08:20 IST, Monday-Saturday, before anyone signs in.
+#
+# Free: one short run a day (~1 minute) on a GitHub-hosted runner - well inside
+# GitHub's free Actions minutes, and GitHub never bills an account without a
+# payment method. Render's own cron jobs are paid, so this replaces one.
+#
+# From then on the backend keeps both services awake by itself until 20:30 IST
+# (backend/app/services/keepalive.py). Outside that window they sleep, which
+# keeps the two free services under Render's 750 free instance-hours a month.
+name: Wake portal
+
+on:
+  schedule:
+    - cron: "50 2 * * 1-6"   # 02:50 UTC = 08:20 IST, Mon-Sat
+  workflow_dispatch: {}       # "Run workflow" button in the Actions tab
+
+permissions: {}
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wake frontend and backend
+        run: |
+          # The frontend proxies /health to the backend, so this wakes both.
+          url="https://deven-bde-sales-portal-frontend.onrender.com/health"
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 "$url" || true)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 30
+          done
+          echo "The portal did not wake up; check the Render dashboard."
+          exit 1

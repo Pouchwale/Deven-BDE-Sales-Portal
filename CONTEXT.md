@@ -126,6 +126,33 @@ User preference: commit and push to `main` after every change.
   again, first `curl -sD - https://deven-bde-sales-portal-backend.onrender.com/health`
   and look for `x-render-routing`.
 
+## Deploys are not reaching Render (found 2026-09-25)
+
+- Pushes to `main` are on GitHub (`git ls-remote` / GitHub API confirm), but
+  **neither Render service has deployed any of today's commits**: 20+ min after
+  pushing `46bd1c0`, the backend `/login` is still the old JSON 404 and the
+  frontend `/login` is 200 with no redirect. So the earlier login-page change
+  (`25c14d4`) never went live either; the user kept seeing the OLD page.
+- Most likely cause (unconfirmed, needs the dashboard): the workspace's free
+  **build pipeline minutes** are used up. Render docs: without a payment method
+  Render "disables all new builds for your workspace for the remainder of the
+  month … services remain active using their existing build artifacts."
+  Minutes reset on the 1st of the month.
+- Other possibilities: auto-deploy switched off, or builds failing — the
+  service's **Events** page in the Render dashboard shows which.
+- Every push builds BOTH services. To save minutes: suspend the old frontend
+  service, or turn its auto-deploy off (it only redirects now).
+
+## Security (public repo)
+
+- `github.com/Pouchwale/Deven-BDE-Sales-Portal` is **public**. The default
+  seed password `ChangeMe@123` has been in it since 2026-09-16 (README,
+  migration 0013, tests) — and the live Super Admin still used it. Anyone could
+  sign in as Super Admin and read every password. Tell the user to change the
+  Super Admin password (and weak ones like `<name>@123`) and to make the repo
+  private (free; check Render still has access through its GitHub app).
+- No customer data files are tracked (`data/` is not in git).
+
 ## Open items for the user
 
 1. **Render free Postgres expires 30 days after creation** (then 14 days'

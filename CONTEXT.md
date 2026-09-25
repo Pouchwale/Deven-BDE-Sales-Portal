@@ -97,16 +97,23 @@ during the wake loop instead of blaming the password) and
   returned `HTTP 429` with header `x-render-routing: hibernate-rate-limited` for
   10+ minutes on 2026-09-24 (~15:20–15:45 IST). That is Render refusing to wake
   the sleeping free service — the request never reaches the app.
-- Most likely: free instance-hours for the month are used up (suspended until
-  Oct 1). Not confirmed — needs the portal's Render dashboard → Billing.
+- Update 2026-09-25: the backend
+  (`https://deven-bde-sales-portal-backend.onrender.com`) woke after ~52 s and
+  the frontend a few minutes later; frontend `/health`, `/api/health/db`
+  (postgresql) and `/login` all returned 200. So the free hours were **not**
+  exhausted — the 429 was Render temporarily refusing to wake a sleeping
+  service. The backend self-keepalive (above) is the fix for the backend.
+- **The Render backend reports `"env": "development"`** in `/health` (only
+  shown outside production). `ENV=production` is not set there, so the
+  production safeguards in `backend/app/core/config.py` are off. The user should
+  set it in the Render backend env (check `production_warnings()` first).
 - Next steps for the user:
-  1. Check free usage. If exhausted: move frontend + backend to Starter
-     (~$7/month each; they then never sleep) or wait until Oct 1.
-  2. If not exhausted: Manual Deploy → Restart on both services.
-  3. Once up, if Admin still fails: probably a lockout — wait 15 min, or set a
-     new `SUPER_ADMIN_PASSWORD` in Render.
+  1. Render backend env: `ENABLE_KEEPALIVE=true`,
+     `SELF_PUBLIC_URL=https://deven-bde-sales-portal-backend.onrender.com/health`.
+  2. Render backend env: `ENV=production` (after reviewing what it enforces).
+  3. If Admin still fails once the site is up: probably a lockout — wait 15
+     min, or set a new `SUPER_ADMIN_PASSWORD` in Render.
   4. Set `PASSWORD_VIEW_KEY` on Render to match local (see above).
-  5. Set `ENABLE_KEEPALIVE` / `SELF_PUBLIC_URL` on the Render backend.
 - Checked and ruled out on this PC: no SAP uploader scheduled task, no
   `%APPDATA%\bde-portal` config — so the Excel/Python SAP uploader
   (`deploy/sync/`), which signs in as the Super Admin, is not locking the account

@@ -26,6 +26,7 @@ from app.core.config import APP_VERSION, Settings, settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
+from app import web
 from app.services import keepalive, sap_sync, super_admin_env
 
 configure_logging(settings.LOG_LEVEL, settings.log_format)
@@ -92,8 +93,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Keeps the portal in step with the live SAP workbook; a no-op unless
     # SAP_DATA_FILE is set and SAP_AUTO_SYNC is on.
     sap_sync.start()
-    # Pings the portal's public URLs in working hours so Render's free tier
-    # never idles it out; on by itself on Render only, never in local dev.
+    # Pings this service's public URL so Render's free tier never idles the
+    # portal out; on by itself on Render only, never in local dev.
     keepalive.start()
     yield
     await keepalive.stop()
@@ -151,3 +152,8 @@ def health_db() -> dict[str, str] | JSONResponse:
     if not settings.is_production:
         body["dialect"] = engine.dialect.name
     return body
+
+
+# Last, so it only answers what no API route claimed: the portal's pages,
+# served by this same service (app/web.py). A no-op without the build.
+web.mount(app)

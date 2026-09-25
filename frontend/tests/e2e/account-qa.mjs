@@ -48,7 +48,7 @@ async function signOut(page) {
 
 async function signIn(page, email) {
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", email);
+  await page.fill("#identifier", email);
   await page.fill("#password", PW);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 25000 });
@@ -141,7 +141,7 @@ for (const account of accounts.filter((a) => !a.active)) {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", account.email);
+  await page.fill("#identifier", account.email);
   await page.fill("#password", PW);
   await page.click('button[type="submit"]');
   await page.waitForTimeout(3000);

@@ -433,23 +433,25 @@ class Settings(BaseSettings):
     SAP_SYNC_INTERVAL_SECONDS: int = 30
 
     # ----------------------------------------------------------- keepalive
-    #: Ping the portal's public URLs on a timer, in working hours, so Render's
-    #: free tier never idles it out (app/services/keepalive.py). "auto" = on
-    #: when running on Render (RENDER is set) but never on a pull-request
-    #: preview, so never in local dev. "true" / "false" force it.
+    #: Ping this service's own public URL on a timer so Render's free tier
+    #: never idles it out (app/services/keepalive.py). The backend serves the
+    #: pages too (app/web.py), so this one service is the whole portal.
+    #: "auto" = on when running on Render (RENDER is set) but never on a
+    #: pull-request preview, so never in local dev. "true" / "false" force it.
     ENABLE_KEEPALIVE: str = "auto"
     #: Extra public HTTPS URLs to ping, comma separated. Must go through
-    #: Render's router: a localhost call does not reset its idle timer.
+    #: Render's router: a localhost call does not reset its idle timer. This
+    #: service's own URL (RENDER_EXTERNAL_URL) is always included.
     SELF_PUBLIC_URL: str = ""
-    #: The frontend. Its /health is proxied to the backend, so one ping keeps
-    #: both services awake.
-    KEEPALIVE_FRONTEND_URL: str = "https://deven-bde-sales-portal-frontend.onrender.com"
+    #: A separate frontend service to keep awake too. Blank: the backend serves
+    #: the pages now, and waking a second free service would eat the hours.
+    KEEPALIVE_FRONTEND_URL: str = ""
     KEEPALIVE_INTERVAL_SECONDS: int = 600
-    #: Only ping inside this local window, so the two free services stay under
-    #: Render's 750 free instance-hours a month (both awake 24/7 would need
-    #: ~1,440 and Render would suspend them). Blank hours/days = always.
-    KEEPALIVE_ACTIVE_HOURS: str = "08:30-20:30"
-    KEEPALIVE_ACTIVE_DAYS: str = "mon,tue,wed,thu,fri,sat"
+    #: Only ping inside this local window. 18 h a day is ~558 of Render's 750
+    #: free instance-hours a month, leaving room to spare; round the clock
+    #: (~744) would leave almost none. Blank hours/days = always.
+    KEEPALIVE_ACTIVE_HOURS: str = "06:30-00:30"
+    KEEPALIVE_ACTIVE_DAYS: str = ""
     #: Local time for the window: IST = UTC+05:30.
     KEEPALIVE_UTC_OFFSET_MINUTES: int = 330
     #: Set by Render itself on every service; never set these by hand.

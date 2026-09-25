@@ -1,6 +1,6 @@
 # Session context — BDE & Sales Portal
 
-Handover notes as of **2026-09-24**. Read this first, then `README.md`.
+Handover notes as of **2026-09-25**. Read this first, then `README.md`.
 No secrets are in this file; they live in `backend/.env` locally and in the
 Render dashboard.
 
@@ -13,11 +13,15 @@ Render dashboard.
   production, SQLite for tests. Hand-written migrations in `backend/app/db/sql/`.
 - **Frontend:** Next.js (a newer version with breaking changes — read
   `frontend/node_modules/next/dist/docs/` before writing Next code), TypeScript,
-  Tailwind. The frontend proxies `/api/*` and `/health` to the backend via
-  `BACKEND_INTERNAL_URL` (`frontend/next.config.ts`).
-- **Live site:** `https://deven-bde-sales-portal-frontend.onrender.com` on Render's
-  **free plan**, two web services (frontend + backend) and a Render Postgres.
-  The data was copied there from this PC with `deploy/backup/copy-to-render.ps1`.
+  Tailwind. Built as a **static export** into `backend/app/web` and served by
+  the backend (see "Single service" below). `next dev` still works as before.
+- **Live site:** **`https://deven-bde-sales-portal-backend.onrender.com`** — one
+  Render web service (the backend) serving pages and `/api`, on the **free
+  plan**, plus a Render Postgres. The old frontend service
+  (`deven-bde-sales-portal-frontend.onrender.com`) only redirects there.
+  The data was copied from this PC with `deploy/backup/copy-to-render.ps1`.
+- **After ANY frontend change:** `cd frontend && npm run export:backend`, and
+  commit `backend/app/web` with it. `backend/tests/test_web.py` fails otherwise.
 - **Render account:** the portal is **not** in the Render workspace connected to
   Claude (that one, "My Workspace", only holds the unrelated "Mihir" services).
   Claude cannot read the portal's Render logs, env vars or billing — the user
@@ -68,29 +72,38 @@ Render dashboard.
    `UserDetailPanel` in `frontend/src/components/admin/UserActionDialogs.tsx`.
    Only offered when `can_act_on`. `tsc` and `eslint` pass; not yet viewed in a
    browser.
-2. **Free keepalive (no Render cron — Render cron jobs are paid)** —
-   `backend/app/services/keepalive.py`, started and cancelled in the lifespan in
-   `backend/app/main.py`. One asyncio task that, every
-   `KEEPALIVE_INTERVAL_SECONDS` (600), GETs the frontend's `/health` (proxied to
-   the backend, so both stay awake) and the backend's own `RENDER_EXTERNAL_URL`.
-   - **Needs no Render settings:** `ENABLE_KEEPALIVE=auto` (default) = on when
-     Render's own `RENDER` env var is set, off on pull-request previews
-     (`IS_PULL_REQUEST=true`) and in local dev. `true`/`false` force it.
-   - Only pings 08:30–20:30 IST, Mon–Sat (`KEEPALIVE_ACTIVE_HOURS`,
-     `KEEPALIVE_ACTIVE_DAYS`, `KEEPALIVE_UTC_OFFSET_MINUTES=330`): both services
-     ≈ 624 of Render's 750 free instance-hours a month. 24/7 would be ≈ 1,440 and
-     Render would suspend them.
-   - Localhost / non-https URLs are refused (a loopback call never resets
-     Render's idle timer). One log line per ping; never raises.
-   - Tests: `backend/tests/test_keepalive.py`.
-3. **Morning wake-up** — `.github/workflows/wake-portal.yml`, GitHub Actions,
-   02:50 UTC = 08:20 IST Mon–Sat (+ manual "Run workflow"). Pings the frontend
-   `/health` until 200 (10 tries, 30 s apart). About 1 min/day of free Actions
-   minutes. After that the backend loop keeps things awake.
-   - `render.yaml` and `deploy/render/keepalive.py` (the paid Render cron job)
-     were deleted. If the Blueprint was ever applied, delete the
-     `portal-keepalive` cron job in the Render dashboard.
-   - The user wants zero spend anywhere in the project.
+2. **Single service (the real fix for the repeated sign-in failures)** — the
+   separate free frontend service kept sleeping and Render refused to wake it
+   (`429`, `x-render-routing: hibernate-rate-limited`): a page load sends dozens
+   of requests to it, Render throttles the wake-ups, sign-in fails ("Sign-in
+   failed" / "Incorrect…" on the old page) while the backend is fine. Two free
+   services also cannot both stay awake (750 h/month/workspace).
+   - `frontend/next.config.ts`: `PORTAL_STATIC_EXPORT=1` → `output: "export"`
+     into `out-static/`; `frontend/scripts/export-to-backend.mjs`
+     (`npm run export:backend`) copies it to `backend/app/web` + `SOURCE_HASH`.
+   - `backend/app/web.py`: catch-all GET/HEAD route (registered last in
+     `main.py`) serving those files: `path`, `path.html`, `path/index.html`,
+     plus the route-segment data files (`x/__next.<group>.x.__PAGE__.txt` →
+     `x/__next.<group>/x/__PAGE__.txt`). Page CSP + cache headers; unknown
+     `/api/*` stays a JSON 404; path traversal refused. HEAD is required (the
+     app probes pages with HEAD; FastAPI GET routes 405 it otherwise).
+   - Customer page moved to `/customers/detail?id=<uuid>`; old
+     `/customers/<uuid>` 308-redirects. Chat cards and notifications updated.
+   - Old frontend service: `redirects()` in `next.config.ts` sends everything
+     to the backend address when `RENDER` is set (or `PORTAL_MOVED_TO`).
+   - Verified: `backend/tests/test_web.py`, and
+     `frontend/tests/e2e/single-origin.mjs` (real Chrome, 4 roles × every
+     page, 41 checks, all pass against a disposable e2e backend). The old
+     `tests/e2e/run.mjs` walkthrough is stale (pre-dashboard-redesign); its
+     `#email` selector was updated to `#identifier`, the rest was not.
+3. **Free keepalive (no Render cron — Render cron jobs are paid)** —
+   `backend/app/services/keepalive.py`, started/cancelled in the lifespan.
+   `ENABLE_KEEPALIVE=auto` = on when Render's `RENDER` var is set, off on PR
+   previews and locally. Pings the service's own `RENDER_EXTERNAL_URL/health`
+   every 600 s, **06:30–00:30 IST every day** (~558 of 750 free hours).
+   `KEEPALIVE_FRONTEND_URL` is blank on purpose (waking the old frontend would
+   eat hours). `.github/workflows/wake-portal.yml` (free GitHub Action) wakes
+   the backend at 06:20 IST daily. The user wants zero spend anywhere.
 4. **Login page** — `frontend/src/app/login/page.tsx`: Render's 429
    `hibernate-rate-limited` is retried during the wake loop and reported as
    "server is waking up", not as a wrong password; 502/503/504, network errors
@@ -103,52 +116,47 @@ User preference: commit and push to `main` after every change.
 
 ---
 
-## Open issue: Admin can't sign in on the live site
+## History of the sign-in failures (resolved by the single service)
 
-- User reports "Incorrect username or password" for Admin (`@superadmin`,
-  typing `ChangeMe@123`) on Render.
-- Finding: **every** request to the live frontend, including `/health`,
-  returned `HTTP 429` with header `x-render-routing: hibernate-rate-limited` for
-  10+ minutes on 2026-09-24 (~15:20–15:45 IST). That is Render refusing to wake
-  the sleeping free service — the request never reaches the app.
-- Update 2026-09-25: the backend
-  (`https://deven-bde-sales-portal-backend.onrender.com`) woke after ~52 s and
-  the frontend a few minutes later; frontend `/health`, `/api/health/db`
-  (postgresql) and `/login` all returned 200. So the free hours were **not**
-  exhausted — the 429 was Render temporarily refusing to wake a sleeping
-  service. The free keepalive (above) prevents it during working hours.
-- **The Render backend reports `"env": "development"`** in `/health` (only
-  shown outside production). `ENV=production` is not set there, so the
-  production safeguards in `backend/app/core/config.py` are off. The user should
-  set it in the Render backend env (check `production_warnings()` first).
-- Next steps for the user:
-  1. **Render free Postgres expires 30 days after creation** (then 14 days'
-     grace, then deleted with all data). This DB was set up ~2026-09-17, so it
-     expires ~2026-10-17. To stay free: move the data to a free Postgres that
-     does not expire (e.g. Neon) and point the backend's `DATABASE_URL` at it.
-  2. Nothing to set for the keepalive. If `ENABLE_KEEPALIVE` was added on
-     Render earlier, remove it (or set `auto`).
-  3. Render backend env: `ENV=production` (after reviewing what it enforces).
-  4. If Admin still fails once the site is up: probably a lockout — wait 15
-     min, or set a new `SUPER_ADMIN_PASSWORD` in Render.
-  5. Set `PASSWORD_VIEW_KEY` on Render to match local (see above).
-- Checked and ruled out on this PC: no SAP uploader scheduled task, no
-  `%APPDATA%\bde-portal` config — so the Excel/Python SAP uploader
-  (`deploy/sync/`), which signs in as the Super Admin, is not locking the account
-  from here. It could still be configured on another PC (the SAP machine); if the
-  lockout recurs, check there for a wrong saved password.
+- 2026-09-24/25: "Incorrect username or password" / "Sign-in failed" for
+  `superadmin` / `navya`. Cause each time: the live frontend returned `429
+  hibernate-rate-limited` (Render refusing to wake it); the request never
+  reached the app. The backend woke normally. Free hours were not exhausted.
+- Fixed by serving everything from the backend (above). If sign-in fails
+  again, first `curl -sD - https://deven-bde-sales-portal-backend.onrender.com/health`
+  and look for `x-render-routing`.
+
+## Open items for the user
+
+1. **Render free Postgres expires 30 days after creation** (then 14 days'
+   grace, then deleted with all data). Set up ~2026-09-17 → expires
+   ~2026-10-17. Plan: move to Neon free (no expiry, 0.5 GB, 100 CU-h/month;
+   DB is ~10 MB) — needs the user to create the Neon account.
+2. Use the new address. Optionally suspend the old frontend service in Render
+   (free) — it only redirects.
+3. If `ENABLE_KEEPALIVE` was added on Render earlier, remove it (or `auto`).
+4. **The Render backend reports `"env": "development"`** — `ENV=production`
+   is not set there. Review `production_warnings()` before switching.
+5. `PASSWORD_VIEW_KEY` on Render should match local (see passwords above).
+6. Lockout recovery: wait 15 min, or set a new `SUPER_ADMIN_PASSWORD` in Render.
 
 ## Useful commands
 
 ```sh
 # Live health (no sign-in attempt, so no lockout risk)
-curl -sD - -o /dev/null https://deven-bde-sales-portal-frontend.onrender.com/health
+curl -sD - -o /dev/null https://deven-bde-sales-portal-backend.onrender.com/health
 
 # Frontend checks
 cd frontend && npx tsc --noEmit -p . && npx eslint src
 
 # Backend tests
 cd backend && .venv/Scripts/python.exe -m pytest
+
+# Rebuild the pages the backend serves (after ANY frontend change)
+cd frontend && npm run export:backend
+
+# Browser check, single origin (disposable e2e backend only - see file header)
+E2E_APP_URL=http://127.0.0.1:8000 E2E_SEED_PASSWORD=... node tests/e2e/single-origin.mjs
 
 # Keepalive tests only
 cd backend && .venv/Scripts/python.exe -m pytest tests/test_keepalive.py -q -p no:cacheprovider

@@ -37,7 +37,7 @@ const TONES: Record<string, string> = {
 /** Where clicking a notification should take you. */
 function destination(entityType: string | null, entityId: string | null): string {
   if (entityType === "LEAD") return "/leads?tab=my-work";
-  if (entityType === "CUSTOMER" && entityId) return `/customers/${entityId}`;
+  if (entityType === "CUSTOMER" && entityId) return `/customers/detail?id=${entityId}`;
   if (entityType === "DEPARTMENT") return "/feedback?tab=alerts";
   return "/dashboard";
 }

@@ -21,7 +21,7 @@ for (const size of SIZES) {
   });
   const page = await context.newPage();
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", "shail.patel@pouchwale.com");
+  await page.fill("#identifier", "shail.patel@pouchwale.com");
   await page.fill("#password", PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/dashboard/, { timeout: 20000 });

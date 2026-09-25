@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start --port 3000",
     "start:prod": "next start --port 3000 --hostname 127.0.0.1",
+    "export:backend": "node scripts/export-to-backend.mjs",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint",

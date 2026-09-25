@@ -41,6 +41,7 @@ node_modules/
 .next/
 .next-*/
 out/
+out-static/
 build/
 *.tsbuildinfo
 npm-debug.log*

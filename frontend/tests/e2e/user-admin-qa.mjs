@@ -65,7 +65,7 @@ page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
 await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-await page.fill("#email", "owner@pouchwale.com");
+await page.fill("#identifier", "owner@pouchwale.com");
 await page.fill("#password", SEED);
 await page.click('button[type="submit"]');
 await page.waitForURL(/dashboard/, { timeout: 20000 });

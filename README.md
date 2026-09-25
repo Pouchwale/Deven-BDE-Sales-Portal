@@ -91,8 +91,10 @@ python -m app.seeds.seed
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
-The backend is an API only — **http://localhost:8000/ has no page and returns
-404 by design.** Interactive API docs are at http://localhost:8000/docs.
+The backend also serves the portal's pages from `backend/app/web` (a static
+export of the frontend, see **Hosted on Render** below), so
+http://localhost:8000/ is the portal too. Interactive API docs are at
+http://localhost:8000/docs.
 
 ```bash
 python -m pytest                 # 289 tests
@@ -849,6 +851,34 @@ in HSTS/nosniff where an upstream did not send them, and strips `Server`.
 **Updating to a new version:** run a backup, `Stop-Service BDEPortalCaddy,
 BDEPortalFrontend, BDEPortalBackend`, update the code, `migrate upgrade`,
 `start-frontend.ps1 -Build` (Ctrl+C), start the services again.
+
+## Hosted on Render (free tier)
+
+The live portal is **one Render web service: the backend**, at
+https://deven-bde-sales-portal-backend.onrender.com. It serves the API and the
+pages from one origin.
+
+**Why one service.** A separate free frontend service kept falling asleep and
+Render refused to wake it (`429`, header `x-render-routing:
+hibernate-rate-limited`), so sign-in failed while the backend was fine. And on
+the free plan two services cannot both stay awake: Render allows 750 instance
+hours a month per workspace. One service can.
+
+| Piece | What it does |
+|---|---|
+| `frontend/scripts/export-to-backend.mjs` (`npm run export:backend`) | builds the frontend as static files (`PORTAL_STATIC_EXPORT=1`) into `backend/app/web`, with a `SOURCE_HASH` of the frontend source |
+| `backend/app/web.py` | serves those files for every GET/HEAD no API route claims, with the page CSP and cache headers; unknown `/api/*` stays a JSON 404 |
+| `backend/tests/test_web.py` | fails if the frontend changed without `npm run export:backend` |
+| `backend/app/services/keepalive.py` | on Render (auto-detected), pings the service's own public URL every 10 min, 06:30–00:30 IST (~558 of the 750 free hours) |
+| `.github/workflows/wake-portal.yml` | free GitHub Action that wakes the portal at 06:20 IST daily |
+| `frontend/next.config.ts` `redirects()` | the old frontend service on Render only redirects to the backend address |
+
+**After any frontend change:** `cd frontend && npm run export:backend`, then
+commit `backend/app/web` with the change. Browser check against a disposable
+e2e backend: `node tests/e2e/single-origin.mjs` (see the file header).
+
+The customer page is `/customers/detail?id=<uuid>` (a static export needs
+every path at build time); old `/customers/<uuid>` links redirect there.
 
 ## Operations — backups and recovery
 

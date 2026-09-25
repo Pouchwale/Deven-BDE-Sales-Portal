@@ -106,7 +106,7 @@ def _account_card(row: dict) -> dict[str, Any]:
         "badges": badges,
         "meta": meta,
         # A SAP customer has its own page; a converted lead does not.
-        "href": f"/customers/{row['id']}" if row.get("type") != "LEAD" else "/references?tab=customers",
+        "href": f"/customers/detail?id={row['id']}" if row.get("type") != "LEAD" else "/references?tab=customers",
         "action": "Open account",
     }
 

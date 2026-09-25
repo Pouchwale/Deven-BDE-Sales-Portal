@@ -2,8 +2,8 @@
 
 import { ArrowLeft, Mail, MessageSquareHeart, Phone, ReceiptText } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 import { CustomerTimeline } from "@/components/customers/CustomerTimeline";
 import { SendRequestButton } from "@/components/customers/SendRequestDialog";
@@ -27,9 +27,22 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-export default function CustomerDetailPage() {
-  const params = useParams<{ id: string }>();
-  const id = params.id;
+/**
+ * /customers/detail?id=<uuid>. A query string rather than /customers/<uuid>
+ * so the portal can be a static export served by the backend (a path segment
+ * would need every id known at build time). The backend redirects the old
+ * /customers/<uuid> links here.
+ */
+export default function CustomerDetailRoute() {
+  return (
+    <Suspense fallback={<Skeleton className="h-96 rounded-card" />}>
+      <CustomerDetailPage />
+    </Suspense>
+  );
+}
+
+function CustomerDetailPage() {
+  const id = useSearchParams().get("id") ?? "";
 
   const [nonce, setNonce] = useState(0);
   const { data, error, loading, reload } = useAsync(

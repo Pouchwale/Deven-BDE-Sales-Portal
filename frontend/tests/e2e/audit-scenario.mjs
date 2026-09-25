@@ -83,7 +83,7 @@ async function session(email) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", email);
+  await page.fill("#identifier", email);
   await page.fill("#password", PW);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 25000 });

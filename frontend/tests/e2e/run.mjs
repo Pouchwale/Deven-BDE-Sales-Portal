@@ -92,7 +92,7 @@ async function shoot(page, name) {
 
 async function signIn(page, email, password) {
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", email);
+  await page.fill("#identifier", email);
   await page.fill("#password", password);
   await page.click('button[type="submit"]');
 }

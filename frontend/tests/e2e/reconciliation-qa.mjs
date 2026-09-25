@@ -73,7 +73,7 @@ for (const { who, email } of ROLES) {
   page.on("pageerror", (e) => consoleErrors.push(String(e)));
 
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", email);
+  await page.fill("#identifier", email);
   await page.fill("#password", PASSWORD);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 20000 });

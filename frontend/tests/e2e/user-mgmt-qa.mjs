@@ -46,7 +46,7 @@ page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
 async function signIn(email, password = SEED) {
   await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-  await page.fill("#email", email);
+  await page.fill("#identifier", email);
   await page.fill("#password", password);
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/(dashboard|set-password)/, { timeout: 25000 });
@@ -77,8 +77,8 @@ check("panel never shows a password or hash",
   !/\$2[aby]\$|hashed_password|ChangeMe/i.test(panel));
 
 await page.click('button:has-text("Edit account")');
-await page.waitForSelector("#email", { timeout: 10000 });
-await page.fill("#email", NEW_EMAIL);
+await page.waitForSelector("#identifier", { timeout: 10000 });
+await page.fill("#identifier", NEW_EMAIL);
 await page.click('button[form="user-form"]');
 await page.waitForTimeout(2500);
 
@@ -97,8 +97,8 @@ console.log("\n=== 2. VALIDATION ===");
 await page.keyboard.press("Escape");
 await openUser("Shivani Patel");
 await page.click('button:has-text("Edit account")');
-await page.waitForSelector("#email");
-await page.fill("#email", roster.find((u) => u.name === "Parth Fulvani").email);
+await page.waitForSelector("#identifier");
+await page.fill("#identifier", roster.find((u) => u.name === "Parth Fulvani").email);
 await page.click('button[form="user-form"]');
 await page.waitForTimeout(2500);
 const dupText = await page.locator('[role="dialog"]').innerText();

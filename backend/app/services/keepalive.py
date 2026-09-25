@@ -1,16 +1,16 @@
-"""Keep the hosted portal awake by pinging its own public URLs - for free.
+"""Keep the hosted portal awake by pinging its own public URL - for free.
 
 Render's free tier stops a web service after 15 minutes without inbound
-traffic, and the next request waits about a minute for a cold start - long
-enough for a sign-in to fail. This loop GETs the frontend's /health (which
-the frontend proxies to the backend, so both stay awake) and the backend's
-own public URL every KEEPALIVE_INTERVAL_SECONDS.
+traffic, and the next request waits about a minute for a cold start - or is
+refused outright (429 hibernate-rate-limited) - so sign-in fails. The backend
+serves the pages as well as /api (app/web.py), so this one service IS the
+portal; this loop GETs its own public /health (RENDER_EXTERNAL_URL, set by
+Render) every KEEPALIVE_INTERVAL_SECONDS.
 
-Only inside KEEPALIVE_ACTIVE_HOURS on KEEPALIVE_ACTIVE_DAYS (IST working
-hours by default): both services awake round the clock would need ~1,440
-instance-hours a month, and Render suspends free services past 750. Outside
-the window the loop stays quiet and the services sleep; the GitHub Action in
-.github/workflows/wake-portal.yml wakes them each morning.
+Only inside KEEPALIVE_ACTIVE_HOURS (06:30-00:30 IST by default): ~558 of
+Render's 750 free instance-hours a month, with room to spare. Outside the
+window the service may sleep; .github/workflows/wake-portal.yml wakes it
+each morning, and the first visitor at night waits about a minute.
 
 The URLs must be the public HTTPS ones. A call to localhost never reaches
 Render's routing layer, so it would not reset the idle timer; such URLs are
@@ -74,9 +74,9 @@ def _normalise(raw: str) -> str | None:
 
 
 def target_urls() -> list[str]:
-    """SELF_PUBLIC_URL entries, the frontend, and this service's own public
-    URL (RENDER_EXTERNAL_URL, set by Render) - de-duplicated, invalid ones
-    dropped with a warning."""
+    """SELF_PUBLIC_URL entries, KEEPALIVE_FRONTEND_URL if set, and this
+    service's own public URL (RENDER_EXTERNAL_URL, set by Render) -
+    de-duplicated, invalid ones dropped with a warning."""
     candidates = [
         *settings.SELF_PUBLIC_URL.split(","),
         settings.KEEPALIVE_FRONTEND_URL,

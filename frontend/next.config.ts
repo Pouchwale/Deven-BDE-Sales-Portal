@@ -23,8 +23,30 @@ const BACKEND_INTERNAL_URL = (process.env.BACKEND_INTERNAL_URL ?? "http://127.0.
  * build succeeds and every sign-in fails at runtime with ECONNREFUSED
  * 127.0.0.1:8000 - so fail the build instead, saying what to set.
  */
+/**
+ * PORTAL_STATIC_EXPORT=1 builds the portal as plain HTML/CSS/JS into
+ * `out-static/`, which `npm run export:backend` copies into the backend
+ * (backend/app/web) so ONE Render service serves both the pages and /api.
+ * On Render's free tier that one service can stay awake around the clock;
+ * a separate frontend service kept falling asleep and being refused wake-ups
+ * (429 hibernate-rate-limited). Same origin, so no rewrites are needed, and
+ * the backend sends the security headers (app/web.py), since a static export
+ * cannot.
+ */
+const staticExport = process.env.PORTAL_STATIC_EXPORT === "1";
+
+/**
+ * The portal now lives on the backend's address (see above). The old separate
+ * frontend service on Render keeps running only to send old bookmarks there.
+ * PORTAL_MOVED_TO overrides the target; locally nothing is redirected.
+ */
+const movedTo = (
+  process.env.PORTAL_MOVED_TO ??
+  (process.env.RENDER ? "https://deven-bde-sales-portal-backend.onrender.com" : "")
+).replace(/\/$/, "");
+
 const onHostingPlatform = Boolean(process.env.RENDER || process.env.VERCEL || process.env.CI);
-if (onHostingPlatform && !process.env.BACKEND_INTERNAL_URL?.trim()) {
+if (!staticExport && onHostingPlatform && !process.env.BACKEND_INTERNAL_URL?.trim()) {
   throw new Error(
     "BACKEND_INTERNAL_URL is not set. Set it on this service to the backend's URL " +
       "(e.g. https://your-backend.onrender.com) and redeploy - it is baked in at build time.",
@@ -98,7 +120,17 @@ const securityHeaders = [
     : [{ key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" }]),
 ];
 
-const nextConfig: NextConfig = {
+const exportConfig: NextConfig = {
+  output: "export",
+  distDir: "out-static",
+  reactStrictMode: true,
+  poweredByHeader: false,
+  devIndicators: false,
+  // No image server in a static export; the logos are small PNGs anyway.
+  images: { unoptimized: true },
+};
+
+const serverConfig: NextConfig = {
   reactStrictMode: true,
   // Optional separate build directory, so a production build (e.g. the e2e
   // stack) can run beside `next dev` without clobbering its `.next`.
@@ -125,6 +157,12 @@ const nextConfig: NextConfig = {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
 
+  async redirects() {
+    return movedTo
+      ? [{ source: "/:path*", destination: `${movedTo}/:path*`, permanent: false }]
+      : [];
+  },
+
   // Same-origin API. The browser calls /api/... on the portal's own origin and
   // Next forwards it to FastAPI, so the session cookie is first-party and no
   // CORS is involved. `/health` is the backend's liveness probe.
@@ -142,5 +180,7 @@ const nextConfig: NextConfig = {
   // Production builds ignore this setting entirely.
   allowedDevOrigins: ["10.*.*.*", "172.16.*.*", "192.168.*.*", "*.local"],
 };
+
+const nextConfig: NextConfig = staticExport ? exportConfig : serverConfig;
 
 export default nextConfig;

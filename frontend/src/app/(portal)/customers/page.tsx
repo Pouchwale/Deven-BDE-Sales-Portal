@@ -204,7 +204,7 @@ export default function CustomersPage() {
                     <TR key={customer.id}>
                       <TD>
                         <Link
-                          href={`/customers/${customer.id}`}
+                          href={`/customers/detail?id=${customer.id}`}
                           className="font-medium text-content hover:underline"
                         >
                           {customer.name}

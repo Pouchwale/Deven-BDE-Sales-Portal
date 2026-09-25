@@ -43,7 +43,7 @@ for (const role of ROLES) {
     page.on("pageerror", (e) => errors.push(String(e)));
 
     await page.goto(`${APP}/login`, { waitUntil: "domcontentloaded" });
-    await page.fill("#email", role.email);
+    await page.fill("#identifier", role.email);
     await page.fill("#password", PW);
     await page.click('button[type="submit"]');
     await page.waitForURL(/\/dashboard/, { timeout: 25000 });

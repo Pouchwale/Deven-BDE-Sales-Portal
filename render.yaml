@@ -1,0 +1,29 @@
+# Render Blueprint. Dashboard -> New -> Blueprint -> pick this repo.
+#
+# Only the cron job is declared here; the web services and database were made
+# by hand and a Blueprint leaves services it does not list alone.
+services:
+  # Pings the portal every 14 minutes so the free-tier services never reach
+  # Render's 15-minute idle spin-down (a cold start breaks the first sign-in).
+  # See deploy/render/keepalive.py.
+  #
+  # Working hours only: 03:00-14:59 UTC = 08:30-20:30 IST, Monday-Saturday.
+  # Kept awake round the clock, the frontend and backend together would use
+  # ~1,440 free instance-hours a month against Render's 750, and Render then
+  # suspends every free service until the next month. Once both are on a paid
+  # plan they never sleep and this job can be deleted.
+  #
+  # The frontend proxies /health to the backend, so this one ping keeps BOTH
+  # awake. On the free plan leave the backend's own ENABLE_KEEPALIVE off: that
+  # self-ping runs 24/7 and, added to this, goes over the 750 free hours.
+  - type: cron
+    name: portal-keepalive
+    runtime: python
+    plan: starter
+    schedule: "*/14 3-14 * * 1-6"
+    buildCommand: "echo no build step"
+    startCommand: python deploy/render/keepalive.py
+    envVars:
+      # The frontend's public /health (comma-separate to add more URLs).
+      - key: PING_URLS
+        value: https://deven-bde-sales-portal-frontend.onrender.com/health

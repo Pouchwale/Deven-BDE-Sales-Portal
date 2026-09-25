@@ -17,21 +17,46 @@ const GENERIC_FAILURE = "Incorrect username or password.";
 
 function signInErrorMessage(cause: unknown): string {
   if (cause instanceof ApiError) {
-    if (cause.code === "RATE_LIMITED") return "Too many sign-in attempts. Try again later.";
-    if (serverUnavailable(cause)) {
-      return "The server is taking too long to respond. Please try again in a minute.";
-    }
+    // Wrong credentials: one message for every case (unknown account, wrong
+    // password, malformed body), so the form never reveals whether an account
+    // exists. This is the ONLY branch that is a verdict on what was typed.
     if (cause.status === 401 || cause.status === 422) return GENERIC_FAILURE;
+    // The app's OWN sign-in limiter: too many attempts for this account/IP.
+    if (cause.code === "RATE_LIMITED") return "Too many sign-in attempts. Try again later.";
+    // A 429 WITHOUT that code is the platform throttling a hibernating or busy
+    // backend (Render answers "hibernate-rate-limited") - a service state, not
+    // a bad password. Retyping the password will not help; waiting will.
+    if (cause.status === 429) {
+      return "The server is waking up or busy (HTTP 429). Wait a minute, then try again.";
+    }
+    // The request never reached a running backend.
+    if (cause.code === "NETWORK_ERROR" || cause.status === 0) {
+      return "Cannot reach the server. Check your connection and try again.";
+    }
+    // Gateway/unavailable while the instance starts or restarts.
+    if ([502, 503, 504].includes(cause.status)) {
+      return "The server is starting up or temporarily unavailable. Try again in a minute.";
+    }
+    // A genuine server-side error. Report the status without any detail.
+    if (cause.status >= 500) {
+      return `The server hit an error (HTTP ${cause.status}). Try again shortly; if it keeps happening, contact your administrator.`;
+    }
   }
   return "Sign-in failed. Please try again.";
 }
 
-/** The backend did not answer at all: asleep, restarting or unreachable. Not
- *  a verdict on the credentials, so it is worth trying again. A real server
- *  error carries the portal's own error code; a gateway failure does not. */
+/** The backend did not answer with a real verdict: asleep, waking, restarting
+ *  or unreachable. Not about the credentials, so the sign-in loop waits and
+ *  retries. A real server error carries the portal's own error code; a gateway
+ *  failure, a dead socket or a platform throttle does not. */
 function serverUnavailable(cause: ApiError): boolean {
   if (cause.code === "NETWORK_ERROR") return true;
   if ([502, 503, 504].includes(cause.status)) return true;
+  // A hibernating/throttled instance (Render's "hibernate-rate-limited")
+  // answers 429 with no app error code, and wakes within about a minute - so
+  // retry it. The app's own limiter uses RATE_LIMITED and must NOT be retried:
+  // that only prolongs the lockout.
+  if (cause.status === 429 && cause.code !== "RATE_LIMITED") return true;
   return cause.status === 500 && cause.code === "UNKNOWN";
 }
 

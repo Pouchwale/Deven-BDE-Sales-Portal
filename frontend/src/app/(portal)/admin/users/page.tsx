@@ -235,7 +235,13 @@ export default function AdminUsersPage() {
                               {isSuperAdmin(actor?.role) ? (
                                 <>
                                   <span className="text-subtle/40">•</span>
-                                  <PasswordReveal key={person.id} userId={person.id} />
+                                  <PasswordReveal
+                                    key={`${person.id}:${person.password_changed_at ?? ""}`}
+                                    userId={person.id}
+                                    onSetPassword={
+                                      person.can_act_on ? () => setResetting(person) : undefined
+                                    }
+                                  />
                                 </>
                               ) : null}
                             </div>

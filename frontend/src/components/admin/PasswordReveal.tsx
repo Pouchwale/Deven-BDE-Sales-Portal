@@ -14,8 +14,21 @@ import { cn } from "@/lib/cn";
  * Fetched on each press rather than shipped with the user list, so the
  * password is never in a listing response, and every reveal is audited on
  * the server. Hiding it again drops it from memory.
+ *
+ * Sign-in keeps only a one-way hash, so an account whose readable copy was
+ * never made (or was made under another key) cannot be shown - it is filled
+ * in at that person's next sign-in, or at once by setting a password here.
  */
-export function PasswordReveal({ userId, className }: { userId: string; className?: string }) {
+export function PasswordReveal({
+  userId,
+  onSetPassword,
+  className,
+}: {
+  userId: string;
+  /** Offered in place of the password when no readable copy exists yet. */
+  onSetPassword?: () => void;
+  className?: string;
+}) {
   const [password, setPassword] = useState<string | null>(null);
   const [state, setState] = useState<"hidden" | "loading" | "shown" | "unavailable">("hidden");
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +56,30 @@ export function PasswordReveal({ userId, className }: { userId: string; classNam
   }
 
   const open = state === "shown" || state === "unavailable";
+
+  if (state === "unavailable" && onSetPassword) {
+    return (
+      <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+        <button
+          type="button"
+          onClick={onSetPassword}
+          title="No readable copy yet - it appears after their next sign-in, or set one now"
+          className="text-[12.5px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+        >
+          Set password
+        </button>
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label="Hide"
+          title="Hide"
+          className="grid size-6 shrink-0 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content"
+        >
+          <EyeOff className="size-3.5" aria-hidden />
+        </button>
+      </span>
+    );
+  }
 
   return (
     <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>

@@ -459,7 +459,10 @@ export function UserDetailPanel({
               <>
                 <dt className="text-subtle">Password</dt>
                 <dd className="min-w-0">
-                  <PasswordReveal userId={user.id} />
+                  <PasswordReveal
+                    userId={user.id}
+                    onSetPassword={user.can_act_on ? onSetPassword : undefined}
+                  />
                 </dd>
               </>
             ) : null}

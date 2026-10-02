@@ -166,7 +166,7 @@ def test_real_app_health_has_headers_and_no_secrets(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert set(body) <= {"status", "app", "version", "env"}
+    assert set(body) <= {"status", "app", "version", "env", "environment", "database"}
     for name, value in EXPECTED_HEADERS.items():
         assert response.headers.get(name) == value, name
 
@@ -245,11 +245,22 @@ def test_health_db_unavailable_reveals_nothing(client: TestClient, monkeypatch) 
     assert response.json() == {"status": "unavailable"}
 
 
-def test_health_hides_env_in_production(client: TestClient, monkeypatch) -> None:
+def test_health_names_the_environment_but_never_the_connection(
+    client: TestClient, monkeypatch
+) -> None:
+    """Which environment and which kind of database answered - so local and
+    production can be told apart in one request - and nothing that locates
+    or unlocks the database."""
     from app.core.config import settings
 
     monkeypatch.setattr(settings, "ENV", "production")
-    assert "env" not in client.get("/health").json()
+    body = client.get("/health").json()
+    assert body["environment"] == "production"
+    assert body["database"] in {"postgresql", "sqlite"}
+    text = str(body).lower()
+    for leak in ("://", "@", "password", "localhost", "127.0.0.1", "5432", "render.com"):
+        assert leak not in text, leak
+    # The readiness probe still keeps its dialect to itself in production.
     assert "dialect" not in client.get("/api/health/db").json()
 
 

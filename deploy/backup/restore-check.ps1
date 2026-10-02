@@ -26,7 +26,7 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$BackupDir = "D:\GP3\backups\postgres",
+  [string]$BackupDir = "D:\GP3\backups\local-dev",
   [string]$DumpFile = "",
   [string]$ScratchDb = "bde_portal_restore_check",
   [string]$AdminUser = "postgres",

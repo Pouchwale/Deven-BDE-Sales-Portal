@@ -81,6 +81,18 @@ def _log_startup_state(config: Settings) -> None:
     if config.is_production:
         for problem in config.production_warnings():
             log.error("configuration: %s", problem)
+    elif config.on_render:
+        # The live portal is on Render. Running it with anything but
+        # ENV=production leaves the API docs public and the production
+        # checks off. Not a refusal - that would take the live site down
+        # mid-deploy - but loud, and naming exactly what ENV=production
+        # would still refuse, so the switch can be made safely.
+        log.error(
+            "running on Render with ENV=%s; set ENV=production in the Render dashboard",
+            config.ENV,
+        )
+        for problem in config.production_problems():
+            log.error("before ENV=production can start: %s", problem)
     elif config.CHAT_ENABLED and not config.GROQ_API_KEY.strip():
         log.warning("CHAT_ENABLED is on but GROQ_API_KEY is blank; the assistant is disabled")
 
@@ -123,14 +135,22 @@ def health() -> dict[str, str]:
     """Liveness probe. Deliberately does not touch the database, so it stays
     honest about the process rather than about the database.
 
-    `env` is reported outside production only, so the end-to-end runners can
-    refuse to drive a server that is not a disposable one (ENV=e2e). Every
-    run creates leads and imports feedback the API cannot delete.
+    Says which environment answered and what kind of database it uses, so
+    "am I on my development copy or on production?" is one request away -
+    never the URL, host, user or password. `env` is the same value under the
+    name the end-to-end runners check (they refuse anything but ENV=e2e).
     """
-    body = {"status": "ok", "app": settings.APP_NAME, "version": APP_VERSION}
-    if not settings.is_production:
-        body["env"] = settings.ENV
-    return body
+    from app.db.session import engine
+
+    return {
+        "status": "ok",
+        "app": settings.APP_NAME,
+        "version": APP_VERSION,
+        "environment": settings.ENV,
+        "env": settings.ENV,
+        # The dialect comes from the configured URL; no connection is made.
+        "database": engine.dialect.name,
+    }
 
 
 @app.get("/api/health/db", tags=["meta"], response_model=None)

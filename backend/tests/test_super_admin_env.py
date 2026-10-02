@@ -205,3 +205,25 @@ def test_wrong_password_for_the_env_username_is_still_refused(client, db, monkey
     response = _login(client, owner.username, "not it")
     assert response.status_code == 401
     assert verify_password("Env Pass 11", owner.hashed_password)
+
+
+# ------------------------------------------ a database copied from Render
+def test_a_copied_database_keeps_its_passwords_after_adopt(db, monkeypatch) -> None:
+    """A copy from another server arrives with THAT server's applied record.
+    Without adopt, this machine's different .env values look new and the
+    next start resets the copied Super Admin password - "works on Render,
+    fails locally". After adopt, the copy is left exactly as it arrived."""
+    owner = _owner(db)
+    password_vault.set_password(owner, "Set On Render 7")
+    db.flush()
+    # The autouse fixture stands in for the copied record of Render's values.
+    _configure(monkeypatch, owner.username, "Local Env Value 8")
+
+    assert super_admin_env.adopt(db) == "adopted"
+    assert super_admin_env.sync(db) == "unchanged"
+    assert verify_password("Set On Render 7", owner.hashed_password)
+
+
+def test_adopt_without_env_values_does_nothing(db, monkeypatch) -> None:
+    _configure(monkeypatch, "", "")
+    assert super_admin_env.adopt(db) == "not-configured"

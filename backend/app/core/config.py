@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     # Turn this ON before the portal reaches real users: while it is off, every
     # account shares one password that is written down in .env.
     SEED_FORCE_PASSWORD_CHANGE: bool = False
+    #: Password for the "-dev" accounts (superadmin-dev, navya-dev, ...) that
+    #: `python -m app.seeds.dev_accounts` creates on a LOCAL development
+    #: database only. Lives in backend/.env, never in the repository, and is
+    #: meaningless anywhere else: those accounts do not exist in production.
+    DEV_ACCOUNT_PASSWORD: str = ""
 
     FEEDBACK_RATING_SCALE_MAX: int = 5
     FEEDBACK_ALERT_THRESHOLD: float = 3.0
@@ -217,6 +222,17 @@ class Settings(BaseSettings):
     CHAT_PROVIDER: str = "Groq"
 
     # ------------------------------------------------------------ validation
+    @model_validator(mode="before")
+    @classmethod
+    def _blank_env_is_unset(cls, data: object) -> object:
+        """`ENV=` (empty) means "not set", exactly like a missing ENV - so it
+        still reads as development, but never counts as `env_explicit`."""
+        if isinstance(data, dict):
+            for key in [k for k in data if str(k).lower() == "env"]:
+                if not str(data[key] or "").strip():
+                    data.pop(key)
+        return data
+
     @field_validator("ENV", mode="before")
     @classmethod
     def _normalise_env(cls, value: object) -> str:
@@ -410,6 +426,57 @@ class Settings(BaseSettings):
     @cached_property
     def is_sqlite(self) -> bool:
         return self.DATABASE_URL.startswith("sqlite")
+
+    # ------------------------------------------------- where am I running?
+    # Three independent facts, so no single missing variable can make a
+    # production database look like a development one (or the reverse).
+    # See app/core/environment_guard.py, which is what acts on them.
+
+    @property
+    def env_explicit(self) -> bool:
+        """Was ENV actually set (process environment or .env)? A missing ENV
+        still reads as "development", but nothing destructive may rely on a
+        value that was only a default."""
+        return "ENV" in self.model_fields_set
+
+    @property
+    def on_render(self) -> bool:
+        """Render sets RENDER on every service it runs. The live portal is
+        there, so a process that sees it is production whatever ENV says."""
+        import os
+
+        return bool(os.environ.get("RENDER", "").strip())
+
+    @cached_property
+    def database_host(self) -> str | None:
+        """Host of DATABASE_URL (None for SQLite). Never the credentials."""
+        if self.is_sqlite:
+            return None
+        from sqlalchemy.engine import make_url
+
+        try:
+            return (make_url(self.DATABASE_URL).host or "").lower() or None
+        except Exception:  # noqa: BLE001 - an unparseable URL is not local
+            return "<unparseable>"
+
+    @cached_property
+    def database_is_local(self) -> bool:
+        """A SQLite file, or PostgreSQL on this machine's loopback."""
+        if self.is_sqlite:
+            return True
+        host = self.database_host or ""
+        return host in {"localhost", "::1", "[::1]"} or host.startswith("127.")
+
+    @property
+    def is_local_development(self) -> bool:
+        """ENV=development set on purpose, not on Render, database on this
+        machine. Only then may development conveniences touch accounts."""
+        return (
+            self.ENV == "development"
+            and self.env_explicit
+            and not self.on_render
+            and self.database_is_local
+        )
 
     @cached_property
     def safe_database_url(self) -> str:

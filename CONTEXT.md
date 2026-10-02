@@ -19,7 +19,8 @@ Render dashboard.
   Render web service (the backend) serving pages and `/api`, on the **free
   plan**, plus a Render Postgres. The old frontend service
   (`deven-bde-sales-portal-frontend.onrender.com`) only redirects there.
-  The data was copied from this PC with `deploy/backup/copy-to-render.ps1`.
+  The data was copied from this PC once (2026-09-17); production has been the
+  source of truth since. See **Databases** below.
 - **After ANY frontend change:** `cd frontend && npm run export:backend`, and
   commit `backend/app/web` with it. `backend/tests/test_web.py` fails otherwise.
 - **Render account:** the portal is **not** in the Render workspace connected to
@@ -152,6 +153,29 @@ User preference: commit and push to `main` after every change.
   Super Admin password (and weak ones like `<name>@123`) and to make the repo
   private (free; check Render still has access through its GitHub app).
 - No customer data files are tracked (`data/` is not in git).
+
+## Databases: local development vs production (2026-10-02)
+
+- **Production = Render PostgreSQL**, the source of truth. **This PC =
+  development**: `backend/.env` has `ENV=development` + `localhost` Postgres.
+  The local DB had been a copy frozen on 2026-09-17, so passwords changed on
+  Render failed locally - that was the "works on Render, fails locally" bug.
+- Local sign-in: the `-dev` accounts (`superadmin-dev`, `shail-dev`,
+  `navya-dev`, `parth-dev`), password `DEV_ACCOUNT_PASSWORD` in backend/.env.
+  `python -m app.seeds.dev_accounts [--reset]`.
+- Guards: `backend/app/core/environment_guard.py`. Seeds/dev accounts need
+  ENV=development set explicitly + not Render + local DB; remote-DB commands
+  need ENV=production explicitly (or to be on Render). Locally SUPER_ADMIN_*
+  never resets an existing account.
+- Backups: `deploy\backup\backup-production.ps1` (Render, read only) nightly via
+  task *BDE Portal - production backup* -> `D:\GP3\backups\production`. The old
+  task backed up the stale local copy; removed. Old local dumps ->
+  `D:\GP3\backups\local-dev`.
+- Manual refresh local <- production: `deploy\backup\copy-from-render.ps1`.
+  Credential once: `deploy\backup\set-production-credential.ps1` (DPAPI,
+  `%LOCALAPPDATA%\BDEPortal`). `copy-to-render.ps1` was deleted on purpose.
+- Render still runs with ENV=development (`/health` says so, `/docs` public).
+  Its startup log now lists what ENV=production would still refuse.
 
 ## Open items for the user
 

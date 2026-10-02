@@ -880,32 +880,99 @@ e2e backend: `node tests/e2e/single-origin.mjs` (see the file header).
 The customer page is `/customers/detail?id=<uuid>` (a static export needs
 every path at build time); old `/customers/<uuid>` links redirect there.
 
-## Operations — backups and recovery
+## Databases — local development vs production
 
-**Nightly backup.** `deploy\backup\backup-postgres.ps1` runs from the
-Scheduled Task *BDE Portal - PostgreSQL backup* at 02:00 (registered with
-`register-backup-task.ps1`; if the PC was off it runs at next start-up):
+Two databases, never the same one:
 
-* `pg_dump -Fc` of `bde_portal` as the `bde_portal` role. The password is
-  parsed from `DATABASE_URL` at run time (`$env:DATABASE_URL` or
-  `backend\.env`), passed via a process-scoped `PGPASSWORD`, then cleared.
-  It is never written to a script, task or log.
-* Written to `D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump`
-  (`-Destination` to change; a folder inside the repo is refused), checked
-  with `pg_restore --list`, with a `.sha256` beside it.
-* Retention: newest backup of each of the last **14 days**, the last
-  **8 Sunday** backups and the last **6 first-of-month** backups. Hand-named
-  dumps (e.g. `…-pre-hardening.dump`) are never pruned.
-* Log: `D:\GP3\backups\postgres\backup.log`. Non-zero exit on failure, which
-  shows as *Last Run Result ≠ 0x0* in Task Scheduler.
-* Registered without elevation the task runs only while the user is signed
-  in; re-run `register-backup-task.ps1` elevated to make it run regardless.
+| | Local development (this PC) | Production (Render) |
+|---|---|---|
+| Database | PostgreSQL on `localhost` (`DATABASE_URL` in `backend/.env`) | Render PostgreSQL (`DATABASE_URL` in the Render dashboard) |
+| `ENV` | `development`, set explicitly in `backend/.env` | `production`, set in the Render dashboard |
+| Accounts | the `-dev` accounts + whatever a refresh copied | the real people — the source of truth |
+| Data flow | **in** only, by a manual refresh | backed up nightly to this PC; never written by local tools |
 
-Run one by hand at any time — and **always before a migration or update**:
+`GET /health` says which one answered: `"environment"` and `"database"`
+(never the URL, host or credentials).
+
+**Guards** (`backend/app/core/environment_guard.py`). The seed, sample
+feedback, `dev_accounts` and `migrate reset` only run with `ENV=development`
+set on purpose (a missing or blank `ENV` is never permission), not on Render,
+against a database on this machine. `migrate upgrade`, `bootstrap_admin` and
+`reset_users` accept a remote database only on Render itself or with
+`ENV=production` set explicitly. On a development PC the `SUPER_ADMIN_*`
+values only ever *create* the first Super Admin; they never reset an existing
+account (on Render they still can — that is the lockout recovery).
+
+**Development accounts.** `superadmin-dev`, `shail-dev`, `navya-dev`,
+`parth-dev` — one per role, password `DEV_ACCOUNT_PASSWORD` in `backend/.env`
+(this PC only, never in the repo). Local work never needs a production
+password.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1
+cd backend
+.venv\Scripts\python.exe -m app.seeds.dev_accounts           # create missing ones
+.venv\Scripts\python.exe -m app.seeds.dev_accounts --reset   # back to the known password
 ```
+
+A password changed while testing stays changed — across restarts and re-runs —
+until `--reset`.
+
+**Production credential (once).** Render → your PostgreSQL → Connect →
+*External Database URL*:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\set-production-credential.ps1
+```
+
+Stored encrypted (Windows DPAPI, this user only) in
+`%LOCALAPPDATA%\BDEPortal\`, outside the repo; never in `backend\.env`.
+
+**Production backup — nightly.** `deploy\backup\backup-production.ps1` dumps
+the *Render* database (read only) to `D:\GP3\backups\production\production-<time>.dump`
+with a `.sha256`, proves the archive readable, keeps 14 daily / 8 Sunday /
+6 monthly. Scheduled by `register-backup-task.ps1` as *BDE Portal - production
+backup* at 02:00. Log: `D:\GP3\backups\production\backup.log`. Run by hand
+before any risky deploy:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-production.ps1
+```
+
+Render's free PostgreSQL is deleted 30 days after creation (+14 days grace):
+these dumps are what survives that. Keep a copy off this PC as well.
+
+**Refresh local from production — manual only.** Replaces the local
+development database (test data included) with a production snapshot. Never
+scheduled; asks you to type `REFRESH`.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-render.ps1
+```
+
+It refuses unless `backend\.env` says `ENV=development` with a local
+`DATABASE_URL` and the credential is *not* local; backs up local first
+(`D:\GP3\backups\local-dev\local-before-refresh-<time>.dump`); dumps production
+read-only (also kept as a production backup); restores in one transaction;
+verifies every row count and every account's password hash against
+production — and puts local back automatically if anything after the restore
+fails; then migrates, keeps the copied passwords, and re-creates the `-dev`
+accounts. `-FromBackup <file>` refreshes from a production dump on disk
+without contacting Render.
+
+**Local backup — on demand.** `deploy\backup\backup-local.ps1` dumps the local
+development database to `D:\GP3\backups\local-dev` (refuses a non-local URL).
+
+**Schema changes** go through migrations, never by hand: add
+`backend/app/db/sql/NNNN_name.sql` → `python -m app.db.migrate upgrade`
+locally → test → commit → push → Render deploys → run `migrate upgrade`
+against production (Render's start/pre-deploy command, or explicitly with
+`ENV=production`). `python -m app.db.migrate check` exits non-zero while
+anything is pending.
+
+Nothing on this PC writes to production. The old `copy-to-render.ps1`
+(local → production) is gone: production is the source of truth.
+
+## Operations — restore tests and recovery
 
 **Weekly restore test.** A backup that has never been restored is a hope, not
 a backup. Once a week (and after any PostgreSQL upgrade):
@@ -922,9 +989,9 @@ database. WARN means every table restored but counts moved since the dump —
 expected on a busy day.
 
 **Off-machine copy.** Backups on the same disk do not survive a disk failure,
-theft or ransomware. Copy `D:\GP3\backups\postgres` somewhere else at least
+theft or ransomware. Copy `D:\GP3\backups\production` somewhere else at least
 daily — e.g. a OneDrive/SharePoint folder of a *different* account, an
-external disk rotated weekly, or a NAS (`robocopy D:\GP3\backups\postgres
+external disk rotated weekly, or a NAS (`robocopy D:\GP3\backups\production
 \\nas\backups\bde-portal *.dump *.sha256 /XO`). The dumps contain customer
 personal data: keep the destination access-controlled.
 
@@ -940,11 +1007,11 @@ corrupted):
 $bin = "C:\Program Files\PostgreSQL\18\bin"
 Stop-Service BDEPortalCaddy, BDEPortalFrontend, BDEPortalBackend   # nobody writes during the restore
 # 1. keep what is there now, even if broken
-powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-local.ps1
 # 2. pick the dump and verify it
-Get-FileHash D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump -Algorithm SHA256   # compare with .sha256
+Get-FileHash D:\GP3\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump -Algorithm SHA256   # compare with .sha256
 # 3. restore over the live database as its owner (asks for the bde_portal password)
-& "$bin\pg_restore.exe" --clean --if-exists --no-owner --role=bde_portal -h localhost -U bde_portal -d bde_portal D:\GP3\backups\postgres\bde_portal-YYYYMMDD-HHmmss.dump
+& "$bin\pg_restore.exe" --clean --if-exists --no-owner --role=bde_portal -h localhost -U bde_portal -d bde_portal D:\GP3\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump
 # 4. confirm the schema matches the code, then start again
 backend\.venv\Scripts\python.exe -m app.db.migrate check
 Start-Service BDEPortalBackend, BDEPortalFrontend, BDEPortalCaddy

@@ -311,6 +311,21 @@ def main(argv: list[str] | None = None) -> int:
     from app.core.config import settings
     from app.db.session import build_engine
 
+    if args.command in ("upgrade", "reset"):
+        # A schema change against a remote database needs explicit production
+        # configuration (or to be running on Render itself) - never a stray
+        # DATABASE_URL in a local shell. status/check only read.
+        from app.core.environment_guard import (
+            require_deliberate_target,
+            require_local_development,
+        )
+
+        require_deliberate_target(f"migrate {args.command}")
+        if args.command == "reset":
+            require_local_development(
+                "migrate reset", allowed_envs=("development", "e2e", "test")
+            )
+
     # No statement timeout for DDL: a long ALTER must not be cancelled halfway
     # through a deploy.
     engine = build_engine(settings.DATABASE_URL, statement_timeout_ms=0)

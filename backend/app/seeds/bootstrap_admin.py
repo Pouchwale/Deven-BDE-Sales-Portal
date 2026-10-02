@@ -147,7 +147,10 @@ def main(argv: list[str] | None = None) -> int:
     from sqlalchemy import inspect
 
     from app.core.config import settings
+    from app.core.environment_guard import require_deliberate_target
     from app.db.session import SessionLocal, engine
+
+    require_deliberate_target("bootstrap_admin")
 
     if not inspect(engine).has_table("users"):
         print(

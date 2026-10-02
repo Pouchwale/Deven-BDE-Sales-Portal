@@ -72,5 +72,10 @@ deploy/**/*.env
 *.dump
 *.dump.sha256
 *.dump.partial
+*.backup
+*.sql.gz
+# The production database credential lives in %LOCALAPPDATA%\BDEPortal,
+# outside the repo - and must never land in it under any name.
+*.dpapi
 /backups/
 /logs/

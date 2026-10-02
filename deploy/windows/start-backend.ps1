@@ -9,7 +9,7 @@
      backend itself refuses to start on an unsafe production configuration.
   2. Runs `python -m app.db.migrate check` and aborts if any migration is
      pending or modified. Apply migrations deliberately, after a backup:
-       deploy\backup\backup-postgres.ps1
+       deploy\backup\backup-local.ps1
        backend\.venv\Scripts\python.exe -m app.db.migrate upgrade
   3. Starts uvicorn on 127.0.0.1:8000 - reachable only through Caddy.
 

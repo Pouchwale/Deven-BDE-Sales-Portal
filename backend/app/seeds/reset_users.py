@@ -202,6 +202,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     args = parser.parse_args(argv)
 
+    from app.core.environment_guard import require_deliberate_target
+
+    require_deliberate_target("reset_users")
+
     identifiers = [u.strip() for u in args.users.split(",") if u.strip()]
     if not identifiers:
         print("Refusing: --users is empty.", file=sys.stderr)

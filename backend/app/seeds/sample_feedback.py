@@ -327,6 +327,12 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if not args.remove:
+        from app.core.environment_guard import require_local_development
+
+        require_local_development(
+            "the sample feedback seed", allowed_envs=("development", "e2e", "test")
+        )
 
     with SessionLocal() as db:
         return remove(db) if args.remove else load(db)

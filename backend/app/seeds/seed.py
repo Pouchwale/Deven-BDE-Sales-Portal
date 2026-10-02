@@ -305,6 +305,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    # Development seeding - roster accounts on a shared password, password
+    # resets - only ever runs against a database on this machine with ENV
+    # set on purpose. Render runs with ENV=development today, so checking
+    # is_production alone never protected it.
+    if not settings.is_production:
+        from app.core.environment_guard import require_local_development
+
+        require_local_development(
+            "the development seed", allowed_envs=("development", "e2e", "test")
+        )
+
     if settings.is_production:
         if args.reset_passwords:
             print(

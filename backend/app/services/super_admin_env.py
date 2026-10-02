@@ -122,6 +122,16 @@ def sync(db: Session) -> str:
     has_super_admin = db.execute(
         select(User.id).where(User.role == Role.SUPER_ADMIN, User.is_active.is_(True))
     ).first() is not None
+
+    if settings.is_local_development and has_super_admin:
+        # On a development PC the .env values only ever CREATE the first
+        # Super Admin. They never reset an existing account: the local
+        # database may be a fresh copy of production, whose passwords must
+        # arrive - and stay - exactly as they are. Recovery by env stays
+        # available where it is needed: on Render.
+        _remember_applied(db, username, password)
+        log.info("Local development: SUPER_ADMIN_* left the existing account as it is")
+        return "kept"
     if db.get(AppSetting, APPLIED_KEY) is None and has_super_admin:
         # First run of this rule on a database that already has a Super Admin:
         # take the account as it is. Applying here would rename or reset an
@@ -242,3 +252,39 @@ def sync_on_startup() -> None:
             db.commit()
     except Exception as exc:  # noqa: BLE001 - logged, and startup continues
         log.error("Super Admin env sync failed: %s", type(exc).__name__)
+
+
+def adopt(db: Session) -> str:
+    """Record the current env values as already applied, changing no account.
+
+    For a database just copied from another server (deploy/backup/
+    copy-from-render.ps1). The copy carries THAT server's record of what it
+    applied; this machine's .env values differ, so the next start would treat
+    them as new and reset the Super Admin's password - and the copied
+    passwords would "stop working" here. Adopting keeps every account exactly
+    as it arrived. Commits nothing - the caller does.
+    """
+    raw_username, password = _env_credentials()
+    if not raw_username or not password:
+        return "not-configured"
+    try:
+        username = validate_username(raw_username)
+    except InvalidUsername:
+        return "invalid-username"
+    _remember_applied(db, username, password)
+    return "adopted"
+
+
+if __name__ == "__main__":  # python -m app.services.super_admin_env adopt
+    import sys
+
+    if sys.argv[1:] != ["adopt"]:
+        print("usage: python -m app.services.super_admin_env adopt")
+        raise SystemExit(2)
+
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        outcome = adopt(session)
+        session.commit()
+    print(f"Super Admin env values: {outcome} (no account changed)")

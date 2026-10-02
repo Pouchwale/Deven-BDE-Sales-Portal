@@ -1,8 +1,13 @@
 <#
 .SYNOPSIS
-  Nightly PostgreSQL backup of the BDE & Sales Portal database.
+  Backup of THIS PC's development database (on demand; not scheduled).
 
 .DESCRIPTION
+  The live portal's data is on Render - back that up with
+  backup-production.ps1 (scheduled by register-backup-task.ps1). This script
+  is for the local development database only: take one before risky local
+  work. It refuses a DATABASE_URL that is not on this machine.
+
   - pg_dump custom format (-Fc) of the live database as the application role.
   - Credentials come from $env:DATABASE_URL, or else DATABASE_URL in
     backend/.env. The password is URL-decoded, handed to pg_dump through
@@ -18,12 +23,11 @@
   - Appends to backup.log in the destination folder; exits non-zero on failure.
 
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-postgres.ps1 -Destination E:\pg-backups
+  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-local.ps1
 #>
 [CmdletBinding()]
 param(
-  [string]$Destination = "D:\GP3\backups\postgres",
+  [string]$Destination = "D:\GP3\backups\local-dev",
   [string]$EnvFile = "",
   [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin",
   [int]$KeepDaily = 14,
@@ -141,6 +145,10 @@ try {
   $pgDump = Resolve-Tool "pg_dump"
   $pgRestore = Resolve-Tool "pg_restore"
   $conn = ConvertFrom-DatabaseUrl (Get-DatabaseUrl $EnvFile)
+  $h = $conn.Host.ToLowerInvariant()
+  if (-not ($h -eq "localhost" -or $h -eq "::1" -or $h.StartsWith("127."))) {
+    throw "DATABASE_URL is not on this machine. This script backs up the LOCAL development database only; use backup-production.ps1 for production."
+  }
 
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
   $name = "{0}-{1}.dump" -f $conn.Database, $stamp

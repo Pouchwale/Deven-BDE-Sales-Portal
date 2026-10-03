@@ -272,3 +272,57 @@ def test_deactivating_somebody_drops_them_from_every_count(client, users, db) ->
 
     roster = client.get("/api/users?page_size=200", headers=headers).json()
     assert roster["total"] == after["users_in_scope"]
+
+
+# ------------------------------------- team rows match the person's own view
+def _row(client, users, manager: str, person: str) -> dict:
+    body = client.get("/api/dashboard", headers=sign_in(client, users[manager])).json()
+    return next(row for row in body["reports"] if row["name"] == person)
+
+
+def test_a_reference_ask_counts_as_activity(client, users) -> None:
+    """Somebody who spent the day recording reference asks did work. Lead
+    activity alone missed it, and the team table said "No activity"."""
+    from tests.conftest import eligible_lead
+
+    lead = eligible_lead(client, users, assignee="Parth Fulvani")
+    parth = sign_in(client, users["Parth Fulvani"])
+    recorded = client.post(
+        "/api/references", headers=parth, json={"lead_id": lead["id"], "outcome": "YES", "referred_name": "Meera"}
+    )
+    assert recorded.status_code == 201, recorded.text
+
+    row = _row(client, users, "Navya Rupawat", "Parth Fulvani")
+    assert row["last_activity_at"] is not None
+    # And the score reflects it, the same as on Parth's own dashboard.
+    own = client.get("/api/dashboard", headers=parth).json()["references"]
+    assert row["reference_score"] == own["reference_score"]
+    assert row["references_on_eligible"] == own["references_taken"]
+
+
+def test_follow_ups_due_include_lead_follow_ups(client, users, db) -> None:
+    """The column adds both kinds the person's own dashboard shows."""
+    from datetime import date
+
+    from app.models.lead import Lead
+
+    navya = sign_in(client, users["Navya Rupawat"])
+    lead = client.post(
+        "/api/leads",
+        headers=navya,
+        json={
+            "name": "Follow Me Up",
+            "mobile": "9800000222",
+            "assigned_to_user_id": str(users["Parth Fulvani"].id),
+        },
+    ).json()
+    row_lead = db.get(Lead, __import__("uuid").UUID(lead["id"]))
+    row_lead.next_follow_up_date = date.today()
+    db.commit()
+
+    own = client.get(
+        "/api/dashboard", headers=sign_in(client, users["Parth Fulvani"])
+    ).json()
+    expected = own["leads"]["follow_ups_due"] + own["references"]["follow_ups_due"]
+    assert expected >= 1
+    assert _row(client, users, "Navya Rupawat", "Parth Fulvani")["followups_due"] == expected

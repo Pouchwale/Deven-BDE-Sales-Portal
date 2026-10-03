@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.authority import ALL, _All, feedback_department_scope, visible_user_ids
 from app.core.constants import (
     ADMIN_ROLES,
+    AuditAction,
     LeadStatus,
     OPEN_LEAD_STATUSES,
     ReferenceStatus,
@@ -29,7 +30,7 @@ from app.models.feedback import Feedback
 from app.models.lead import Lead, LeadActivity
 from app.models.org import Department, Team, User
 from app.models.reference import CustomerReference
-from app.models.system import Notification
+from app.models.system import AuditEvent, Notification
 from app.services import feedback_analysis, leads as lead_service, metrics
 from app.services import references as reference_service
 from app.services import runtime_settings
@@ -247,6 +248,27 @@ def _team_rollup(db: Session) -> list[dict]:
     return out
 
 
+#: Audited actions that are somebody doing their job - the "last activity"
+#: column counts these. Sign-in, password, account and admin events are not.
+WORK_ACTIONS = tuple(
+    str(action)
+    for action in (
+        AuditAction.LEAD_CREATED,
+        AuditAction.LEAD_UPDATED,
+        AuditAction.LEAD_ASSIGNED,
+        AuditAction.LEAD_REASSIGNED,
+        AuditAction.LEAD_STATUS_CHANGED,
+        AuditAction.REFERENCE_RECORDED,
+        AuditAction.REVIEW_REQUESTED,
+        AuditAction.FEEDBACK_REQUEST_ISSUED,
+        AuditAction.FEEDBACK_REQUEST_SENT,
+        AuditAction.FEEDBACK_RESOLVED,
+        AuditAction.CUSTOMER_OWNER_CHANGED,
+        AuditAction.ACTIVITY_UNDONE,
+    )
+)
+
+
 def report_rows(
     db: Session,
     scope: set[uuid.UUID] | _All,
@@ -308,7 +330,12 @@ def report_rows(
         )
         .group_by(Lead.assigned_to_user_id)
     )
-    followups = grouped(
+    # Everything due today or earlier, of BOTH kinds - the same two counts
+    # the person's own dashboard shows as "Follow-ups due" (asking a won
+    # customer again for a reference) and "Lead follow-ups" (an open lead
+    # whose next follow-up date has come). Counting only the first left this
+    # column at 0 for someone whose own dashboard said otherwise.
+    reference_followups = grouped(
         select(Lead.assigned_to_user_id, func.count(Lead.id))
         .where(
             Lead.assigned_to_user_id.in_(ids),
@@ -316,6 +343,16 @@ def report_rows(
             Lead.reference_status == ReferenceStatus.PENDING,
             Lead.next_reference_date.is_not(None),
             Lead.next_reference_date <= today,
+        )
+        .group_by(Lead.assigned_to_user_id)
+    )
+    lead_followups = grouped(
+        select(Lead.assigned_to_user_id, func.count(Lead.id))
+        .where(
+            Lead.assigned_to_user_id.in_(ids),
+            Lead.status.in_(OPEN_LEAD_STATUSES),
+            Lead.next_follow_up_date.is_not(None),
+            Lead.next_follow_up_date <= today,
         )
         .group_by(Lead.assigned_to_user_id)
     )
@@ -336,13 +373,30 @@ def report_rows(
         )
         .group_by(CustomerReference.requested_by_user_id)
     )
-    # Last time this person did anything on a lead. Replaces "last invoice",
-    # which measured SAP's activity rather than theirs.
-    last_activity = grouped(
+    # Last time this person did any WORK: a note or change on a lead, or an
+    # audited action of their own - recording a reference ask, sending a
+    # feedback request, creating or moving a lead. Lead activity alone missed
+    # the reference and feedback work, so someone who spent the day asking
+    # customers for references read "No activity". Signing in, password and
+    # admin events are not work and do not count.
+    lead_activity = grouped(
         select(LeadActivity.actor_user_id, func.max(LeadActivity.created_at))
         .where(LeadActivity.actor_user_id.in_(ids))
         .group_by(LeadActivity.actor_user_id)
     )
+    audited_work = grouped(
+        select(AuditEvent.actor_user_id, func.max(AuditEvent.created_at))
+        .where(
+            AuditEvent.actor_user_id.in_(ids),
+            AuditEvent.action.in_(WORK_ACTIONS),
+        )
+        .group_by(AuditEvent.actor_user_id)
+    )
+    last_activity = {
+        user_id: max(stamps)
+        for user_id in ids
+        if (stamps := [t for t in (lead_activity.get(user_id), audited_work.get(user_id)) if t])
+    }
 
     rows = [
         {
@@ -355,7 +409,7 @@ def report_rows(
             "open_leads": open_leads.get(user.id, 0),
             "converted": converted.get(user.id, 0),
             "references_taken": references_taken.get(user.id, 0),
-            "followups_due": followups.get(user.id, 0),
+            "followups_due": reference_followups.get(user.id, 0) + lead_followups.get(user.id, 0),
             "eligible_accounts": scores[user.id]["eligible"],
             "references_on_eligible": scores[user.id]["taken"],
             "reference_score": scores[user.id]["score"],

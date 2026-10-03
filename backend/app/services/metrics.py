@@ -39,6 +39,7 @@ from app.core import eligibility
 from app.core.authority import ALL, _All
 from app.core.constants import (
     CLOSED_LEAD_STATUSES,
+    COMPLETED_REFERENCE_STATUSES,
     OPEN_LEAD_STATUSES,
     LeadStatus,
     ReferenceStatus,
@@ -376,7 +377,9 @@ def reference_scores_by_user(
         if entry is None:
             continue
         entry["eligible"] += count
-        if status == ReferenceStatus.TAKEN:
+        # A declined account counts as done for the score (agreed with the
+        # business, 2026-10-03): it was asked and answered.
+        if status in COMPLETED_REFERENCE_STATUSES:
             entry["taken"] += count
     for entry in per_user.values():
         entry["score"] = reference_score(entry["eligible"], entry["taken"])
@@ -435,7 +438,7 @@ def reference_metrics(
         "completed": completed,
         "completion_rate": round(completed / total * 100, 1),
         "reference_rate": round(taken / total * 100, 1),
-        "score": reference_score(total, taken),
+        "score": reference_score(total, completed),
     }
 
 

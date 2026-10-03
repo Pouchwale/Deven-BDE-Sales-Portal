@@ -326,3 +326,19 @@ def test_follow_ups_due_include_lead_follow_ups(client, users, db) -> None:
     expected = own["leads"]["follow_ups_due"] + own["references"]["follow_ups_due"]
     assert expected >= 1
     assert _row(client, users, "Navya Rupawat", "Parth Fulvani")["followups_due"] == expected
+
+
+def test_a_declined_reference_counts_as_taken_in_the_score(client, users) -> None:
+    """Agreed 2026-10-03: asked and declined is done, same as given."""
+    from tests.conftest import eligible_lead
+
+    lead = eligible_lead(client, users, assignee="Parth Fulvani")
+    parth = sign_in(client, users["Parth Fulvani"])
+    declined = client.post(
+        "/api/references", headers=parth, json={"lead_id": lead["id"], "outcome": "NOT_SHARED"}
+    )
+    assert declined.status_code == 201, declined.text
+
+    own = client.get("/api/dashboard", headers=parth).json()["references"]
+    assert own["eligible_accounts"] == 1 and own["reference_score"] == 0
+    assert _row(client, users, "Navya Rupawat", "Parth Fulvani")["reference_score"] == 0

@@ -3,6 +3,9 @@ parth-dev.
 
     python -m app.seeds.dev_accounts            create the ones that are missing
     python -m app.seeds.dev_accounts --reset    put all four back on the password
+    python -m app.seeds.dev_accounts --local-passwords
+                                                give every REAL account in the local
+                                                database a password you know
 
 Local development must not depend on production passwords. These four cover
 every role, all share DEV_ACCOUNT_PASSWORD from backend/.env, and they exist
@@ -121,15 +124,68 @@ def ensure(db: Session, password: str, *, reset: bool = False) -> dict[str, str]
     return outcome
 
 
+def set_local_passwords(db: Session, pattern: str) -> list[str]:
+    """Give every active real account (not the -dev ones) the password
+    `pattern` with {username} filled in, unlocked and without a forced
+    change. LOCAL database only - main() enforces that. The local copy of
+    the data carries whatever passwords it had when it was copied; this makes
+    it usable with passwords you know. Returns the usernames, never the
+    passwords. Commits nothing."""
+    changed: list[str] = []
+    users = db.execute(select(User).where(User.is_active.is_(True))).scalars().all()
+    for user in users:
+        if not user.username or user.username.endswith("-dev"):
+            continue
+        password_vault.set_password(user, pattern.replace("{username}", user.username))
+        user.password_changed_at = utcnow()
+        user.locked_until = None
+        user.failed_login_count = 0
+        user.must_change_password = False
+        audit.record(
+            db,
+            actor_id=None,
+            action=AuditAction.PASSWORD_RESET,
+            entity_type=EntityType.USER,
+            entity_id=user.id,
+            after={"source": "dev_accounts --local-passwords"},
+        )
+        changed.append(user.username)
+    db.flush()
+    return sorted(changed)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.seeds.dev_accounts")
     parser.add_argument(
         "--reset", action="store_true",
         help="put existing dev accounts back on DEV_ACCOUNT_PASSWORD and unlock them",
     )
+    parser.add_argument(
+        "--local-passwords", action="store_true",
+        help="give every real account in the LOCAL database the password "
+        "DEV_LOCAL_PASSWORD_PATTERN (backend/.env) with {username} filled in",
+    )
     args = parser.parse_args(argv)
 
     require_local_development("dev_accounts")
+
+    if args.local_passwords:
+        pattern = settings.DEV_LOCAL_PASSWORD_PATTERN.strip()
+        if "{username}" not in pattern or len(pattern.replace("{username}", "")) < 3:
+            print(
+                "Refusing: set DEV_LOCAL_PASSWORD_PATTERN in backend/.env, containing "
+                "{username} (for example {username} plus a suffix of your own).",
+                file=sys.stderr,
+            )
+            return 1
+        from app.db.session import SessionLocal
+
+        with SessionLocal() as db:
+            changed = set_local_passwords(db, pattern)
+            db.commit()
+        print(f"Local passwords set for {len(changed)} account(s): {', '.join(changed)}")
+        print("Pattern: DEV_LOCAL_PASSWORD_PATTERN in backend/.env (this PC only).")
+        return 0
 
     password = settings.DEV_ACCOUNT_PASSWORD.strip()
     if len(password) < MIN_PASSWORD_LENGTH:

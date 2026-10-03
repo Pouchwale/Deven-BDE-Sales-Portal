@@ -137,6 +137,12 @@ class Settings(BaseSettings):
     #: database only. Lives in backend/.env, never in the repository, and is
     #: meaningless anywhere else: those accounts do not exist in production.
     DEV_ACCOUNT_PASSWORD: str = ""
+    #: LOCAL development only: the password every real account gets in the
+    #: local database when `python -m app.seeds.dev_accounts --local-passwords`
+    #: runs, with {username} replaced - so a local copy of the data can be
+    #: signed into with passwords you know. backend/.env only, NEVER the
+    #: repository (it is public, and a pattern is as good as the passwords).
+    DEV_LOCAL_PASSWORD_PATTERN: str = ""
 
     FEEDBACK_RATING_SCALE_MAX: int = 5
     FEEDBACK_ALERT_THRESHOLD: float = 3.0

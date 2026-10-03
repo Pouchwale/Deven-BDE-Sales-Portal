@@ -186,3 +186,24 @@ def test_a_blank_env_is_the_same_as_a_missing_one(monkeypatch) -> None:
     assert config.ENV == "development"
     assert not config.env_explicit
     assert not config.is_local_development
+
+
+def test_local_passwords_cover_real_accounts_only(client, db) -> None:
+    from app.seeds import dev_accounts
+
+    dev_accounts.ensure(db, "Dev Pass 123")
+    db.commit()
+    changed = dev_accounts.set_local_passwords(db, "{username}-Local9")
+    db.commit()
+    assert changed and not any(name.endswith("-dev") for name in changed)
+
+    name = changed[0]
+    signed_in = client.post(
+        "/api/auth/login", json={"identifier": name, "password": f"{name}-Local9"}
+    )
+    assert signed_in.status_code == 200, signed_in.text
+    # The dev accounts keep their own password.
+    dev = client.post(
+        "/api/auth/login", json={"identifier": "navya-dev", "password": "Dev Pass 123"}
+    )
+    assert dev.status_code == 200, dev.text

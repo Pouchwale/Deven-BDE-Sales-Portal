@@ -917,6 +917,13 @@ cd backend
 A password changed while testing stays changed — across restarts and re-runs —
 until `--reset`.
 
+**Your own accounts locally.** The local database is a copy, so its accounts
+carry the passwords they had when copied — not the ones you use now. To sign
+in locally as yourself (e.g. `navya`), set `DEV_LOCAL_PASSWORD_PATTERN` in
+`backend/.env` (with `{username}` in it) and run
+`python -m app.seeds.dev_accounts --local-passwords`: every real account in the
+LOCAL database gets that password. Re-run it after any refresh from production.
+
 **Production credential (once).** Render → your PostgreSQL → Connect →
 *External Database URL*:
 

@@ -396,10 +396,12 @@ def test_garbage_credentials_are_401(client) -> None:
 
 
 # -------------------------------------------------------------- client ip
-def _request(peer: str, forwarded: str | None = None) -> Request:
+def _request(peer: str, forwarded: str | None = None, *, edge: str | None = None) -> Request:
     headers = []
     if forwarded is not None:
         headers.append((b"x-forwarded-for", forwarded.encode()))
+    if edge is not None:
+        headers.append((b"cf-connecting-ip", edge.encode()))
     return Request({"type": "http", "client": (peer, 5555), "headers": headers})
 
 
@@ -430,3 +432,66 @@ def test_spoofed_forwarded_for_does_not_reach_the_audit_trail(client, db, users)
     assert response.status_code == 200
     db.refresh(user)
     assert user.last_login_ip != "6.6.6.6"
+
+
+# Render, as measured on the live service: Cloudflare -> Render's proxy on
+# 127.0.0.1 -> uvicorn --forwarded-allow-ips "*", which hands the app the
+# LEFTMOST X-Forwarded-For entry as the peer - here the visitor's forgery.
+RENDER_CHAIN = "6.6.6.6, 198.51.100.7, 172.71.0.1, 10.1.2.3"
+
+
+def test_the_edge_header_decides_when_configured(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "CLIENT_IP_HEADER", "CF-Connecting-IP")
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", "127.0.0.1")
+    assert deps.client_ip(_request("6.6.6.6", RENDER_CHAIN, edge="198.51.100.7")) == "198.51.100.7"
+    assert deps.client_ip(_request("6.6.6.6", edge="2001:db8::7")) == "2001:db8::7"
+    # Missing or not an address: the X-Forwarded-For rules apply as before.
+    assert deps.client_ip(_request("203.0.113.9", edge="not-an-ip")) == "203.0.113.9"
+    assert deps.client_ip(_request("127.0.0.1", "198.51.100.7")) == "198.51.100.7"
+
+
+def test_the_edge_header_is_ignored_unless_configured(monkeypatch) -> None:
+    """Where nothing in front of the app writes it (a Caddy install), the
+    header is just something a visitor typed."""
+    monkeypatch.setattr(settings, "CLIENT_IP_HEADER", "")
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", "127.0.0.1")
+    assert deps.client_ip(_request("203.0.113.9", edge="198.51.100.7")) == "203.0.113.9"
+
+
+def test_behind_the_edge_a_forged_forwarded_for_reaches_neither_audit_nor_limit(
+    client, db, users, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "CLIENT_IP_HEADER", "CF-Connecting-IP")
+    user = users["Shail Patel"]
+    response = _login(
+        client,
+        user.email,
+        headers={"CF-Connecting-IP": "198.51.100.7", "X-Forwarded-For": "6.6.6.6"},
+    )
+    assert response.status_code == 200
+    db.refresh(user)
+    assert user.last_login_ip == "198.51.100.7"
+
+    # The login limiter counts per edge address: rotating X-Forwarded-For does
+    # not reset it, and a different visitor is not blocked by this one.
+    for attempt in range(settings.LOGIN_RATE_LIMIT_ATTEMPTS):
+        _login(
+            client,
+            "nobody@example.com",
+            password="wrong",
+            headers={"CF-Connecting-IP": "198.51.100.8", "X-Forwarded-For": f"6.6.6.{attempt}"},
+        )
+    blocked = _login(
+        client,
+        "nobody@example.com",
+        password="wrong",
+        headers={"CF-Connecting-IP": "198.51.100.8", "X-Forwarded-For": "6.6.7.7"},
+    )
+    assert blocked.status_code == 429
+    other = _login(
+        client,
+        "nobody@example.com",
+        password="wrong",
+        headers={"CF-Connecting-IP": "198.51.100.9"},
+    )
+    assert other.status_code == 401

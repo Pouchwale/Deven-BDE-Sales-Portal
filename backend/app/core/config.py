@@ -14,6 +14,7 @@ the values are secrets.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import re
 import secrets
 from functools import cached_property
@@ -173,6 +174,14 @@ class Settings(BaseSettings):
     #: Proxies whose X-Forwarded-For is believed. Blank = trust none, so a
     #: client cannot spoof its IP past the rate limiter.
     TRUSTED_PROXIES: str = ""
+
+    #: A header the EDGE in front of the app writes itself and refuses from
+    #: visitors, carrying the visitor's address: CF-Connecting-IP behind
+    #: Cloudflare, which fronts every Render service. When set and present it
+    #: decides the client IP for rate limiting and audit, whatever
+    #: X-Forwarded-For says (deps.client_ip). Blank = off. Set it ONLY where
+    #: every request reaches the app through that edge.
+    CLIENT_IP_HEADER: str = ""
 
     #: Fernet key that encrypts the copy of each password the Super Admin
     #: may reveal (app/core/password_vault.py). Blank = nothing stored or
@@ -348,6 +357,22 @@ class Settings(BaseSettings):
         if self.CORS_ORIGIN_REGEX.strip():
             problems.append("CORS_ORIGIN_REGEX must be blank")
 
+        # Either would let a visitor choose the address it is rate-limited
+        # and audited under.
+        if self.CLIENT_IP_HEADER.strip().lower() in {"x-forwarded-for", "forwarded"}:
+            problems.append(
+                "CLIENT_IP_HEADER must be a header the edge sets itself "
+                "(e.g. CF-Connecting-IP), not one visitors can add to"
+            )
+        for part in self.TRUSTED_PROXIES.split(","):
+            try:
+                network = ipaddress.ip_network(part.strip(), strict=False)
+            except ValueError:
+                continue  # ignored by deps._trusted_networks too
+            if network.prefixlen == 0:
+                problems.append("TRUSTED_PROXIES must not trust every address")
+                break
+
         if not self.COOKIE_SECURE:
             problems.append("COOKIE_SECURE must be true")
         if self.COOKIE_SAMESITE == "none":
@@ -386,6 +411,12 @@ class Settings(BaseSettings):
             warnings.append(
                 "TRUSTED_PROXIES is blank; behind a reverse proxy every client "
                 "will share the proxy's IP for rate limiting and audit"
+            )
+        if self.on_render and not self.CLIENT_IP_HEADER.strip():
+            warnings.append(
+                "On Render, set CLIENT_IP_HEADER=CF-Connecting-IP: Cloudflare "
+                "writes it and refuses it from visitors; X-Forwarded-For keeps "
+                "whatever a visitor sent"
             )
         if self.GOOGLE_SYNC_SECRET.strip() and len(self.GOOGLE_SYNC_SECRET.strip()) < 32:
             warnings.append("GOOGLE_SYNC_SECRET should be at least 32 characters")

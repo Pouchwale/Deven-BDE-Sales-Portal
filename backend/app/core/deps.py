@@ -218,11 +218,24 @@ def _is_trusted(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, networks) -> 
 def client_ip(request: Request) -> str | None:
     """The caller's IP, for rate limiting and the audit trail.
 
-    X-Forwarded-For is attacker-controlled unless it was written by our own
-    reverse proxy, so it is honoured ONLY when the socket peer is listed in
-    TRUSTED_PROXIES. The chain is walked from the right, skipping trusted
-    hops; the first untrusted address is the client.
+    CLIENT_IP_HEADER first, when it is set and holds an address: a header the
+    edge in front of the app writes itself. On Render that edge is Cloudflare
+    and the header CF-Connecting-IP, which Cloudflare refuses from visitors
+    (403, error 1000), so a visitor cannot choose it. The socket peer is no
+    help there: uvicorn's --forwarded-allow-ips "*" has already replaced it
+    with the LEFTMOST X-Forwarded-For entry - whatever the visitor sent.
+
+    Otherwise X-Forwarded-For, which is attacker-controlled unless it was
+    written by our own reverse proxy, so it is honoured ONLY when the socket
+    peer is listed in TRUSTED_PROXIES. The chain is walked from the right,
+    skipping trusted hops; the first untrusted address is the client.
     """
+    header = settings.CLIENT_IP_HEADER.strip()
+    if header:
+        edge_ip = _parse_ip(request.headers.get(header, ""))
+        if edge_ip is not None:
+            return str(edge_ip)
+
     peer = request.client.host if request.client else None
     networks = _trusted_networks(settings.TRUSTED_PROXIES or "")
     peer_ip = _parse_ip(peer) if peer else None

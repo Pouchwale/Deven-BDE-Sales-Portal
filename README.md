@@ -891,6 +891,18 @@ hours a month per workspace. One service can.
 | `.github/workflows/wake-portal.yml` | free GitHub Action that wakes the portal at 06:20 IST daily |
 | `frontend/next.config.ts` `redirects()` | the old frontend service on Render only redirects to the backend address |
 
+**Client IP (rate limiting and audit).** Every request reaches the app through
+Cloudflare, then Render's proxy on `127.0.0.1`, then uvicorn started with
+`--proxy-headers --forwarded-allow-ips "*"`. With `"*"`, uvicorn hands the app
+the *leftmost* `X-Forwarded-For` entry as the peer — whatever the visitor
+typed — so on Render the address comes from Cloudflare's `CF-Connecting-IP`
+instead, which Cloudflare writes and refuses from visitors (403, error 1000).
+Set on the service: `CLIENT_IP_HEADER=CF-Connecting-IP` and
+`TRUSTED_PROXIES=127.0.0.1`. The app warns at startup when it sees `RENDER`
+without `CLIENT_IP_HEADER`, and refuses `CLIENT_IP_HEADER=X-Forwarded-For` or
+a `TRUSTED_PROXIES` that trusts every address. uvicorn's own access-log line
+still shows the leftmost entry; only `deps.client_ip()` decides anything.
+
 **After any frontend change:** `cd frontend && npm run export:backend`, then
 commit `backend/app/web` with the change. Browser check against a disposable
 e2e backend: `node tests/e2e/single-origin.mjs` (see the file header).

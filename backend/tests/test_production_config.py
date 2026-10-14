@@ -72,6 +72,10 @@ def test_load_settings_accepts_a_good_production_config() -> None:
         ({"COOKIE_SECURE": False}, "COOKIE_SECURE must be true"),
         ({"COOKIE_SAMESITE": "none"}, "COOKIE_SAMESITE must be lax or strict"),
         ({"SEED_PASSWORD": "ChangeMe@123"}, "SEED_PASSWORD must not be set"),
+        ({"CLIENT_IP_HEADER": "X-Forwarded-For"}, "CLIENT_IP_HEADER must be a header the edge sets"),
+        ({"CLIENT_IP_HEADER": "forwarded"}, "CLIENT_IP_HEADER must be a header the edge sets"),
+        ({"TRUSTED_PROXIES": "0.0.0.0/0"}, "TRUSTED_PROXIES must not trust every address"),
+        ({"TRUSTED_PROXIES": "127.0.0.1, ::/0"}, "TRUSTED_PROXIES must not trust every address"),
     ],
 )
 def test_each_unsafe_setting_is_refused_by_name(overrides: dict, fragment: str) -> None:
@@ -194,6 +198,16 @@ def test_missing_sap_file_and_chat_key_are_warnings_not_errors(tmp_path) -> None
     assert "SAP_DATA_FILE does not exist" in warnings
     assert "GROQ_API_KEY is blank" in warnings
     assert config.chat_enabled is False
+
+
+def test_render_without_the_edge_header_is_warned(monkeypatch) -> None:
+    monkeypatch.setenv("RENDER", "true")
+    assert any("CLIENT_IP_HEADER" in w for w in prod().production_warnings())
+    assert prod(CLIENT_IP_HEADER="CF-Connecting-IP").production_warnings() == []
+    prod(CLIENT_IP_HEADER="CF-Connecting-IP", TRUSTED_PROXIES="127.0.0.1").validate_for_production()
+
+    monkeypatch.delenv("RENDER")
+    assert not any("CLIENT_IP_HEADER" in w for w in prod().production_warnings())
 
 
 def test_relative_sap_path_is_warned() -> None:

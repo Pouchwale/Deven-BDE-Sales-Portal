@@ -12,8 +12,9 @@
   1. Checks the target: backend\.env must say ENV=development and its
      DATABASE_URL must be on this machine. The source must NOT be. Anything
      ambiguous stops the run before anything is changed.
-  2. Backs up the local database  -> D:\GP3\backups\local-dev\local-before-refresh-<time>.dump
-  3. Dumps production (read only) -> D:\GP3\backups\production\production-<time>.dump
+  2. Backs up the local database  -> backups\local-dev\local-before-refresh-<time>.dump
+  3. Dumps production (read only) -> backups\production\production-<time>.dump
+     (backups\ is beside the repository: D:\BDE and SALES PORTAL\backups)
      (or uses -FromBackup <file> and does not connect to production at all)
   4. Restores into the local database in ONE transaction - a failure leaves
      it untouched.
@@ -31,14 +32,15 @@
 
 .EXAMPLE
   # From a production backup already on disk, without connecting to Render:
-  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-render.ps1 -FromBackup D:\GP3\backups\production\production-20261002-020000.dump
+  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-render.ps1 -FromBackup "D:\BDE and SALES PORTAL\backups\production\production-20261002-020000.dump"
 #>
 [CmdletBinding()]
 param(
   [string]$FromBackup = "",
   [string]$EnvFile = "",
   [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin",
-  [string]$BackupRoot = "D:\GP3\backups",
+  # Blank = backups\ beside the repository (see backup-production.ps1).
+  [string]$BackupRoot = "",
   # Skip the typed confirmation (for scripted use). The target checks still apply.
   [switch]$Yes
 )
@@ -51,6 +53,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Backend = Join-Path $RepoRoot "backend"
 if (-not $EnvFile) { $EnvFile = Join-Path $Backend ".env" }
 $Python = Join-Path $Backend ".venv\Scripts\python.exe"
+if (-not $BackupRoot) { $BackupRoot = Join-Path (Split-Path $RepoRoot -Parent) "backups" }
 $ProductionDir = Join-Path $BackupRoot "production"
 $LocalDir = Join-Path $BackupRoot "local-dev"
 

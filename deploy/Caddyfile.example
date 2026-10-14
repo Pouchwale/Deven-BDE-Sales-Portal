@@ -18,7 +18,7 @@
 	email admin@example.com
 	# Logs of Caddy itself. Keep all logs OUTSIDE the repository.
 	log {
-		output file D:/GP3/logs/caddy/caddy.log {
+		output file "D:/BDE and SALES PORTAL/logs/caddy/caddy.log" {
 			roll_size 20MiB
 			roll_keep 10
 		}
@@ -30,7 +30,7 @@ portal.example.com {
 	# Access log (JSON). Contains client IPs and paths, never request bodies
 	# or cookies.
 	log {
-		output file D:/GP3/logs/caddy/access.log {
+		output file "D:/BDE and SALES PORTAL/logs/caddy/access.log" {
 			roll_size 50MiB
 			roll_keep 14
 			roll_keep_for 720h

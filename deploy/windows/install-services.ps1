@@ -46,7 +46,8 @@ param(
   [string]$Nssm = "C:\tools\nssm\nssm.exe",
   [string]$Caddy = "C:\caddy\caddy.exe",
   [string]$Caddyfile = "C:\caddy\Caddyfile",
-  [string]$LogDir = "D:\GP3\logs"
+  # Blank = logs\ beside the repository, never inside it.
+  [string]$LogDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,6 +61,7 @@ foreach ($path in @($Nssm, $Caddy, $Caddyfile)) {
 }
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+if (-not $LogDir) { $LogDir = Join-Path (Split-Path $RepoRoot -Parent) "logs" }
 if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "backend\.env"))) { throw "backend\.env is missing." }
 if (-not (Test-Path -LiteralPath (Join-Path $RepoRoot "frontend\.next\BUILD_ID"))) { throw "Frontend is not built. Run start-frontend.ps1 -Build first." }
 

@@ -26,7 +26,8 @@
 #>
 [CmdletBinding()]
 param(
-  [string]$BackupDir = "D:\GP3\backups\local-dev",
+  # Blank = backups\local-dev beside the repository (see backup-production.ps1).
+  [string]$BackupDir = "",
   [string]$DumpFile = "",
   [string]$ScratchDb = "bde_portal_restore_check",
   [string]$AdminUser = "postgres",
@@ -40,6 +41,7 @@ Set-StrictMode -Version 2.0
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $EnvFile) { $EnvFile = Join-Path $RepoRoot "backend\.env" }
+if (-not $BackupDir) { $BackupDir = Join-Path (Split-Path $RepoRoot -Parent) "backups\local-dev" }
 
 function Get-DatabaseUrl([string]$Path) {
   if ($env:DATABASE_URL) { return $env:DATABASE_URL }

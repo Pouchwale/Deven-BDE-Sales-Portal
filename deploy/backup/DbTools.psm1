@@ -1,7 +1,7 @@
 <#
   Shared helpers for the portal's database scripts. Imported by:
 
-    backup-production.ps1          Render (production) -> D:\GP3\backups\production
+    backup-production.ps1          Render (production) -> backups\production beside the repository
     copy-from-render.ps1           Render -> this PC's development database (manual)
     set-production-credential.ps1  stores the Render URL, encrypted, for this Windows user
 

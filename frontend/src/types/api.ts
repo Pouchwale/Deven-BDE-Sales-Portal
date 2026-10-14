@@ -549,6 +549,34 @@ export interface LeadDetail extends Lead {
   activities: LeadActivity[];
 }
 
+/** One lead passed on by its holder to somebody in their team. */
+export interface LeadHandoff {
+  id: string;
+  lead_id: string;
+  lead_name: string;
+  company_name: string | null;
+  lead_status: LeadStatus | null;
+  from_user_id: string | null;
+  from_name: string | null;
+  to_user_id: string | null;
+  to_name: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+export interface HandoffCount {
+  user_id: string | null;
+  name: string;
+  count: number;
+}
+
+/** Every pass the caller may see, and how many. A record only — no score
+ *  reads it. */
+export interface HandoffLog extends Page<LeadHandoff> {
+  passed_by: HandoffCount[];
+  passed_to: HandoffCount[];
+}
+
 /** One row of "who did I assign leads to, and how many". */
 export interface AssignedByMeCount {
   user_id: string | null;

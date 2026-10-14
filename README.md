@@ -525,6 +525,21 @@ Any timeline entry can be taken back — the fix for a mis-click.
   happened and was then taken back" is the truth. Deleting it would hide a
   real event from the audit trail.
 
+### Passing a lead on
+
+The person holding an open lead can hand it to somebody in their own team —
+Navya to Muskan, say — from the lead's dialog (**Pass on to my team**).
+
+* Only the **holder** passes it on, only to somebody they can act on (their
+  team; a BDE has nobody), and only while the lead is **open**.
+* The lead leaves the holder's list and joins the new person's, who is
+  notified. The lead's timeline shows the pass and its optional reason.
+* Every pass is kept in `lead_handoffs` and shown under **Assigned Leads →
+  Passed on**: each pass, plus how many each person passed on and received.
+  Managers see their team's passes, a BDE the ones involving them, admins all.
+* **No score changes.** The pass scores nothing, and a converted lead (which
+  counts in its holder's reference score) cannot be passed on.
+
 ### Ready-to-send requests — WhatsApp and email
 
 Nobody retypes "could you fill in our feedback form, here is the link". A

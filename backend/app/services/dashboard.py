@@ -257,6 +257,7 @@ WORK_ACTIONS = tuple(
         AuditAction.LEAD_UPDATED,
         AuditAction.LEAD_ASSIGNED,
         AuditAction.LEAD_REASSIGNED,
+        AuditAction.LEAD_PASSED_ON,
         AuditAction.LEAD_STATUS_CHANGED,
         AuditAction.REFERENCE_RECORDED,
         AuditAction.REVIEW_REQUESTED,

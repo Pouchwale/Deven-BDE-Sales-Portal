@@ -93,6 +93,43 @@ class LeadStatusChange(BaseModel):
     remark: str | None = Field(default=None, max_length=2000)
 
 
+class LeadPassOn(BaseModel):
+    to_user_id: uuid.UUID
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class LeadHandoffOut(BaseModel):
+    id: uuid.UUID
+    lead_id: uuid.UUID
+    lead_name: str
+    company_name: str | None = None
+    lead_status: LeadStatus | None = None
+    from_user_id: uuid.UUID | None = None
+    from_name: str | None = None
+    to_user_id: uuid.UUID | None = None
+    to_name: str | None = None
+    reason: str | None = None
+    created_at: datetime
+
+
+class HandoffCount(BaseModel):
+    user_id: uuid.UUID | None = None
+    name: str
+    count: int
+
+
+class HandoffLog(BaseModel):
+    """Every pass the caller may see (newest first) and how many: in all, per
+    person who passed and per person who took. A record - no score uses it."""
+
+    items: list[LeadHandoffOut]
+    total: int
+    page: int
+    page_size: int
+    passed_by: list[HandoffCount]
+    passed_to: list[HandoffCount]
+
+
 class LeadActivityCreate(BaseModel):
     activity_type: str
     remark: str | None = Field(default=None, max_length=2000)

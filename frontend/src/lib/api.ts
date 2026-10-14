@@ -29,6 +29,7 @@ import type {
   FeedbackAlert,
   FeedbackAnalysis,
   FollowUpDue,
+  HandoffLog,
   ImportSummary,
   Lead,
   LeadDetail,
@@ -550,6 +551,15 @@ export const api = {
       }),
     assignedByMeCounts: (signal?: AbortSignal) =>
       request<AssignedByMeCount[]>("/api/leads/assigned-by-me/counts", { signal }),
+    /** The holder hands an open lead to somebody in their team. */
+    passOn: (id: string, toUserId: string, reason?: string) =>
+      request<LeadDetail>(`/api/leads/${id}/pass-on`, {
+        method: "POST",
+        body: { to_user_id: toUserId, reason: reason || null },
+      }),
+    /** Every lead passed on that the caller may see, with the counts. */
+    handoffs: (query?: Query, signal?: AbortSignal) =>
+      request<HandoffLog>("/api/leads/handoffs", { query, signal }),
     get: (id: string, signal?: AbortSignal) =>
       request<LeadDetail>(`/api/leads/${id}`, { signal }),
     create: (body: CreateLeadBody) =>

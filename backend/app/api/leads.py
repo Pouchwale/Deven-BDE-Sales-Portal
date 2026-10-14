@@ -19,11 +19,13 @@ from app.core.deps import (
 from app.core.errors import invalid
 from app.schemas.common import MAX_PAGE, MAX_PAGE_SIZE, Page
 from app.schemas.lead import (
+    HandoffLog,
     LeadActivityCreate,
     LeadActivityOut,
     LeadCreate,
     LeadDetail,
     LeadOut,
+    LeadPassOn,
     LeadStats,
     LeadStatusChange,
     LeadUpdate,
@@ -117,6 +119,21 @@ def assigned_by_me_counts(
     somebody whose leads are not on the page being looked at.
     """
     return lead_service.assigned_by_counts(db, scope, actor.id)
+
+
+@router.get("/handoffs", response_model=HandoffLog)
+def handoff_log(
+    _: CurrentUser,
+    db: DbSession,
+    scope: VisibilityScope,
+    page: int = Query(default=1, ge=1, le=MAX_PAGE),
+    page_size: int = Query(default=25, ge=1, le=MAX_PAGE_SIZE),
+) -> HandoffLog:
+    """Every lead passed on that the caller may see, and how many. Declared
+    before /{lead_id}, which would otherwise read "handoffs" as an id."""
+    return HandoffLog.model_validate(
+        lead_service.handoff_log(db, scope, page=page, page_size=page_size)
+    )
 
 
 @router.post("", response_model=LeadDetail, status_code=status.HTTP_201_CREATED)
@@ -312,6 +329,30 @@ def record_message_sent(
 # The timeline keeps its `undone_at` column and still renders entries that
 # were undone while the feature existed. Those undos really happened; erasing
 # them would be the one thing an append-only history must never do.
+
+
+@router.post("/{lead_id}/pass-on", response_model=LeadDetail)
+def pass_on(
+    lead_id: uuid.UUID,
+    payload: LeadPassOn,
+    request: Request,
+    actor: CurrentUser,
+    db: DbSession,
+    scope: VisibilityScope,
+) -> LeadDetail:
+    """The holder hands an open lead to somebody in their team; the pass is
+    recorded in the handoff log. See lead_service.pass_on for the rules."""
+    lead = lead_service.get_lead(db, scope, lead_id)
+    lead_service.pass_on(
+        db,
+        actor,
+        lead,
+        payload.to_user_id,
+        reason=payload.reason,
+        ip_address=client_ip(request),
+    )
+    db.commit()
+    return _detail(db, lead_service.get_lead(db, scope, lead_id))
 
 
 @router.post("/{lead_id}/activities", response_model=LeadDetail)

@@ -3,6 +3,7 @@
 import {
   CalendarClock,
   CheckCircle2,
+  Forward,
   Inbox,
   Plus,
   Repeat2,
@@ -28,7 +29,7 @@ import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
-import { formatDate, formatNumber, formatRelative } from "@/lib/format";
+import { formatDate, formatDateTime, formatNumber, formatRelative } from "@/lib/format";
 import {
   LEAD_PRIORITY_TONE,
   LEAD_STATUS_LABELS,
@@ -163,6 +164,14 @@ function LeadsInner() {
     ],
   );
 
+  // Every lead passed on that the caller may see. Fetched whatever the tab,
+  // so the tab can show its count.
+  const [handoffPage, setHandoffPage] = useState(1);
+  const handoffs = useAsync(
+    (signal) => api.leads.handoffs({ page: handoffPage, page_size: PAGE_SIZE }, signal),
+    [handoffPage, nonce],
+  );
+
   const assignedTotal = assignedByMe.data?.reduce((sum, row) => sum + row.count, 0) ?? 0;
 
   function setTab(next: string) {
@@ -259,6 +268,9 @@ function LeadsInner() {
               ]
             : []),
           { key: "all", label: "All leads", count: leads.data?.total },
+          // Everyone: a manager sees what their team passed, a BDE what was
+          // passed to them.
+          { key: "passed-on", label: "Passed on", count: handoffs.data?.total },
         ]}
       />
 
@@ -576,6 +588,123 @@ function LeadsInner() {
                 total={leads.data.total}
                 onPageChange={setPage}
                 noun="leads"
+              />
+            </>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* ------------------------------------------------------ passed on */}
+      {tab === "passed-on" ? (
+        <Card className="overflow-hidden">
+          <CardHeader className="block">
+            <CardTitle>Passed-on leads</CardTitle>
+            <CardDescription>
+              Every lead its holder handed to somebody in their team, and how many. A
+              record only &mdash; passing a lead on changes nobody&rsquo;s score.
+            </CardDescription>
+          </CardHeader>
+          {handoffs.error ? (
+            <ErrorState error={handoffs.error} onRetry={handoffs.reload} />
+          ) : handoffs.loading && !handoffs.data ? (
+            <TableSkeleton rows={6} columns={6} />
+          ) : handoffs.data && handoffs.data.total === 0 ? (
+            <EmptyState
+              icon={Forward}
+              title="Nothing passed on yet"
+              description="When a manager passes one of their leads to their team, it is recorded here."
+            />
+          ) : handoffs.data ? (
+            <>
+              <div className="grid grid-cols-1 gap-3 border-b border-line p-3.5 sm:grid-cols-2">
+                {(
+                  [
+                    ["Passed on by", handoffs.data.passed_by],
+                    ["Passed on to", handoffs.data.passed_to],
+                  ] as const
+                ).map(([label, rows]) => (
+                  <div key={label}>
+                    <p className="mb-1.5 text-[12px] font-medium text-subtle">{label}</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {rows.map((row) => (
+                        <span
+                          key={row.user_id ?? row.name}
+                          className="rounded-full border border-line bg-surface px-2.5 py-1 text-[12.5px] text-muted"
+                        >
+                          {row.name}{" "}
+                          <span className="font-semibold text-content">
+                            {formatNumber(row.count)}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <TableWrap>
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH>Lead</TH>
+                      <TH>From</TH>
+                      <TH>To</TH>
+                      <TH>Reason</TH>
+                      <TH>Stage now</TH>
+                      <TH align="right">When</TH>
+                    </tr>
+                  </THead>
+                  <TBody>
+                    {handoffs.data.items.map((row) => (
+                      <TR key={row.id}>
+                        <TD>
+                          <button
+                            type="button"
+                            onClick={() => setOpenLead(row.lead_id)}
+                            className="text-left font-medium text-content hover:underline"
+                          >
+                            {row.lead_name}
+                          </button>
+                          <span className="block truncate text-[12px] text-subtle">
+                            {row.company_name ?? "—"}
+                          </span>
+                        </TD>
+                        <TD data-label="From" className="text-muted">
+                          {row.from_name ?? "—"}
+                        </TD>
+                        <TD data-label="To" className="text-muted">
+                          {row.to_name ?? "—"}
+                        </TD>
+                        <TD data-label="Reason" className="text-muted">
+                          {row.reason ?? <span className="text-subtle">—</span>}
+                        </TD>
+                        <TD data-label="Stage now">
+                          {row.lead_status ? (
+                            <Badge className={LEAD_STATUS_TONE[row.lead_status]}>
+                              {LEAD_STATUS_LABELS[row.lead_status]}
+                            </Badge>
+                          ) : (
+                            <span className="text-subtle">—</span>
+                          )}
+                        </TD>
+                        <TD
+                          align="right"
+                          data-label="When"
+                          className="whitespace-nowrap text-muted"
+                          title={formatDateTime(row.created_at)}
+                        >
+                          {formatRelative(row.created_at)}
+                        </TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </TableWrap>
+              <Pagination
+                page={handoffs.data.page}
+                pageSize={handoffs.data.page_size}
+                total={handoffs.data.total}
+                onPageChange={setHandoffPage}
+                noun="passes"
               />
             </>
           ) : null}

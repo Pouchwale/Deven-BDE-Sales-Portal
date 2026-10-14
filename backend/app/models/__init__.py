@@ -15,7 +15,7 @@ from app.models.feedback import (
     FeedbackRequest,
     FeedbackSyncEvent,
 )
-from app.models.lead import Lead, LeadActivity
+from app.models.lead import Lead, LeadActivity, LeadHandoff
 from app.models.post_sale import PostSaleRecord
 from app.models.org import Department, Team, User, UserSession
 from app.models.reference import CustomerReference
@@ -41,6 +41,7 @@ __all__ = [
     "InvoiceLine",
     "Lead",
     "LeadActivity",
+    "LeadHandoff",
     "Notification",
     "SapImport",
     "Team",

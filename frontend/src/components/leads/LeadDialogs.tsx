@@ -1,6 +1,6 @@
 "use client";
 
-import { Undo2 } from "lucide-react";
+import { Forward, Undo2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -17,7 +17,7 @@ import {
   LEAD_STATUS_TONE,
   NEXT_STATUSES,
 } from "@/lib/leads";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, isLeadership } from "@/lib/roles";
 import { formatDateTime } from "@/lib/format";
 import { useToast } from "@/lib/toast";
 import type { LeadDetail, LeadStatus, User } from "@/types/api";
@@ -200,6 +200,135 @@ export function CreateLeadDialog({
         {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
       </form>
     </Modal>
+  );
+}
+
+/* -------------------------------------------------------------- pass on */
+/**
+ * Hand a lead you are holding to somebody in your team.
+ *
+ * Offered only to the holder of an open lead who has a team (manager and
+ * up). The names are the server's answer to "who may I act on?", and the API
+ * enforces the same rules either way. The pass moves no score; it is kept in
+ * the Passed on record on the Leads page.
+ */
+function PassOnPanel({
+  lead,
+  onPassed,
+}: {
+  lead: LeadDetail;
+  onPassed: (next: LeadDetail, toName: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [team, setTeam] = useState<User[] | null>(null);
+  const [to, setTo] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    if (!open || team) return;
+    const controller = new AbortController();
+    api.users
+      .actionable(controller.signal)
+      .then((people) => setTeam(people.filter((person) => person.is_active)))
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === "AbortError") return;
+        setTeam([]);
+      });
+    return () => controller.abort();
+  }, [open, team]);
+
+  const toName = team?.find((person) => person.id === to)?.name ?? "";
+
+  function cancel() {
+    setOpen(false);
+    setTo("");
+    setReason("");
+    setError(null);
+  }
+
+  async function submit() {
+    if (!to) return;
+    setBusy(true);
+    setError(null);
+    try {
+      onPassed(await api.leads.passOn(lead.id, to, reason.trim()), toName);
+      cancel();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause : new Error(String(cause)));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+          <Forward className="size-4" aria-hidden />
+          Pass on to my team
+        </Button>
+        <span className="text-[12.5px] text-subtle">
+          Moves it off your list. Every pass is kept on record.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-line bg-surface-2 p-3">
+      <p className="mb-2 text-[12.5px] font-semibold text-content">Pass this lead on</p>
+      {team === null ? (
+        <div className="flex justify-center py-3">
+          <Spinner />
+        </div>
+      ) : team.length === 0 ? (
+        <p className="text-[12.5px] text-muted">There is nobody in your team to pass it to.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Pass to" htmlFor="pass-on-to" required hint="Only people in your team.">
+            <Select id="pass-on-to" value={to} onChange={(event) => setTo(event.target.value)}>
+              <option value="" disabled>
+                Choose a person…
+              </option>
+              {team.map((person) => (
+                <option key={person.id} value={person.id}>
+                  {person.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label="Reason"
+            htmlFor="pass-on-reason"
+            hint="Optional. Shown on the lead and in the record."
+          >
+            <Input
+              id="pass-on-reason"
+              value={reason}
+              maxLength={2000}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Why them?"
+            />
+          </Field>
+        </div>
+      )}
+      {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <Button size="sm" loading={busy} disabled={!to} onClick={() => void submit()}>
+          Pass on
+        </Button>
+        <Button size="sm" variant="secondary" disabled={busy} onClick={cancel}>
+          Cancel
+        </Button>
+        {toName ? (
+          <span className="text-[12.5px] text-muted">
+            {toName} gets it and is notified. No score changes.
+          </span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -476,6 +605,20 @@ export function LeadDetailDialog({
               </p>
             )}
           </div>
+
+          {/* ---------------------------------------------- pass on */}
+          {isAssignee &&
+          isLeadership(user?.role) &&
+          !CLOSED_LEAD_STATUSES.includes(lead.status) ? (
+            <PassOnPanel
+              lead={lead}
+              onPassed={(next, toName) => {
+                setLead(next);
+                toast.success("Lead passed on", `${toName} has it now. It is kept in Passed on.`);
+                onChanged();
+              }}
+            />
+          ) : null}
 
           {/* ------------------------------------------------ feedback */}
           {lead.status === "CONVERTED" ? (

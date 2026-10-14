@@ -109,3 +109,27 @@ class LeadActivity(Base):
     @property
     def is_undone(self) -> bool:
         return self.undone_at is not None
+
+
+class LeadHandoff(Base):
+    """A lead passed on by the person holding it to somebody in their team.
+
+    A record only: the lead moves through `Lead.assigned_to_user_id`, and no
+    score reads this table."""
+
+    __tablename__ = "lead_handoffs"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=new_uuid)
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        GUID, ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    from_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    to_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        TimestampType, nullable=False, default=utcnow
+    )

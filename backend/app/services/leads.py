@@ -32,7 +32,7 @@ from app.core.constants import (
 )
 from app.core.errors import forbidden, invalid, not_found
 from app.db.base import utcnow
-from app.models.lead import Lead, LeadActivity
+from app.models.lead import Lead, LeadActivity, LeadHandoff
 from app.models.org import User
 from app.services import audit, notifications
 
@@ -424,6 +424,173 @@ def update_lead(
             ip_address=ip_address,
         )
     return lead
+
+
+# --------------------------------------------------------------- pass on
+def pass_on(
+    db: Session,
+    actor: User,
+    lead: Lead,
+    to_user_id: uuid.UUID,
+    *,
+    reason: str | None = None,
+    ip_address: str | None = None,
+) -> LeadHandoff:
+    """Hand a lead you are holding to somebody in your team.
+
+    Not a reassignment by a superior: only the person holding the lead
+    passes it on, only to somebody they can act on (their own team), and only
+    while it is open. A converted lead already counts in its holder's
+    reference score, and moving it would move that score; the pass itself
+    scores nothing. Every pass is kept in lead_handoffs.
+    """
+    if lead.assigned_to_user_id != actor.id:
+        raise forbidden(
+            "Only the person holding this lead can pass it on.", ErrorCode.FORBIDDEN
+        )
+    if lead.status not in OPEN_LEAD_STATUSES:
+        raise invalid("Only an open lead can be passed on.")
+    if to_user_id == actor.id:
+        raise invalid("Choose somebody else to pass this lead on to.")
+    recipient = _require_assignable(db, actor, to_user_id)
+    reason = (reason or "").strip() or None
+
+    lead.assigned_to_user_id = recipient.id
+    lead.assigned_by_user_id = actor.id
+    lead.assigned_at = utcnow()
+
+    handoff = LeadHandoff(
+        lead_id=lead.id, from_user_id=actor.id, to_user_id=recipient.id, reason=reason
+    )
+    db.add(handoff)
+    lead.activities.append(
+        LeadActivity(
+            actor_user_id=actor.id,
+            activity_type=LeadActivityType.PASSED_ON,
+            remark=f"Passed on to {recipient.name} by {actor.name}."
+            + (f" {reason}" if reason else ""),
+        )
+    )
+    notifications.create(
+        db,
+        user_id=recipient.id,
+        type=NotificationType.LEAD_ASSIGNED,
+        title=f"Lead passed on to you: {lead.name}",
+        body=f"{actor.name} passed {lead.name} on to you."
+        + (f" {reason}" if reason else ""),
+        entity_type=EntityType.LEAD,
+        entity_id=lead.id,
+    )
+    audit.record(
+        db,
+        actor_id=actor.id,
+        action=AuditAction.LEAD_PASSED_ON,
+        entity_type=EntityType.LEAD,
+        entity_id=lead.id,
+        before={"assigned_to_user_id": actor.id},
+        after={"assigned_to_user_id": recipient.id},
+        ip_address=ip_address,
+    )
+    db.flush()
+    return handoff
+
+
+def _scoped_handoffs(scope: set[uuid.UUID] | _All) -> Select:
+    """A pass is visible to anyone who can see the person who passed it or
+    the person who took it: a manager sees their team's, a BDE their own."""
+    stmt = select(LeadHandoff)
+    if scope is ALL:
+        return stmt
+    return stmt.where(
+        or_(LeadHandoff.from_user_id.in_(scope), LeadHandoff.to_user_id.in_(scope))
+    )
+
+
+def handoff_log(
+    db: Session,
+    scope: set[uuid.UUID] | _All,
+    *,
+    page: int = 1,
+    page_size: int = 25,
+) -> dict:
+    """Every pass the caller may see, newest first, with the counts: how many
+    in all, and per person who passed and per person who received."""
+    base = _scoped_handoffs(scope).subquery()
+    total = db.scalar(select(func.count()).select_from(base)) or 0
+
+    def per(column) -> list[tuple[uuid.UUID | None, int]]:
+        return [
+            (row[0], row[1])
+            for row in db.execute(
+                select(column, func.count()).select_from(base).group_by(column)
+            ).all()
+        ]
+
+    passed_by = per(base.c.from_user_id)
+    passed_to = per(base.c.to_user_id)
+
+    rows = (
+        db.execute(
+            _scoped_handoffs(scope)
+            .order_by(LeadHandoff.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        .scalars()
+        .all()
+    )
+    leads = {
+        lead.id: lead
+        for lead in db.execute(
+            select(Lead).where(Lead.id.in_({row.lead_id for row in rows}))
+        ).scalars()
+    }
+    user_ids = {row.from_user_id for row in rows} | {row.to_user_id for row in rows}
+    user_ids |= {user_id for user_id, _ in passed_by + passed_to}
+    names = dict(
+        db.execute(
+            select(User.id, User.name).where(User.id.in_(user_ids - {None}))
+        ).all()
+    )
+
+    def counts(pairs: list[tuple[uuid.UUID | None, int]]) -> list[dict]:
+        out = [
+            {
+                "user_id": user_id,
+                "name": names.get(user_id, "Deleted user") if user_id else "Deleted user",
+                "count": count,
+            }
+            for user_id, count in pairs
+        ]
+        out.sort(key=lambda row: (-row["count"], row["name"]))
+        return out
+
+    items = []
+    for row in rows:
+        lead = leads.get(row.lead_id)
+        items.append(
+            {
+                "id": row.id,
+                "lead_id": row.lead_id,
+                "lead_name": lead.name if lead else "Deleted lead",
+                "company_name": lead.company_name if lead else None,
+                "lead_status": lead.status if lead else None,
+                "from_user_id": row.from_user_id,
+                "from_name": names.get(row.from_user_id) if row.from_user_id else None,
+                "to_user_id": row.to_user_id,
+                "to_name": names.get(row.to_user_id) if row.to_user_id else None,
+                "reason": row.reason,
+                "created_at": row.created_at,
+            }
+        )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "passed_by": counts(passed_by),
+        "passed_to": counts(passed_to),
+    }
 
 
 def change_status(

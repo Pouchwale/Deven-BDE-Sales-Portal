@@ -166,7 +166,7 @@ def test_real_app_health_has_headers_and_no_secrets(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert set(body) <= {"status", "app", "version", "env", "environment", "database"}
+    assert set(body) <= {"status", "app", "version", "env", "environment", "database", "commit"}
     for name, value in EXPECTED_HEADERS.items():
         assert response.headers.get(name) == value, name
 
@@ -262,6 +262,14 @@ def test_health_names_the_environment_but_never_the_connection(
         assert leak not in text, leak
     # The readiness probe still keeps its dialect to itself in production.
     assert "dialect" not in client.get("/api/health/db").json()
+
+
+def test_health_names_the_deployed_commit(client: TestClient, monkeypatch) -> None:
+    """So "has Render deployed my push yet?" is one request away."""
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    assert client.get("/health").json()["commit"] == "unknown"
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "57ef722ded42739e76939af812c5f2ee1401105d")
+    assert client.get("/health").json()["commit"] == "57ef722"
 
 
 # ------------------------------------------------------------------ CORS

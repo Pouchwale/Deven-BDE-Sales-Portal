@@ -18,6 +18,10 @@ target is not the one it is meant for. Fail closed: when in doubt, refuse.
                                 itself, or with ENV=production set explicitly
                                 - never because ENV happened to be missing.
 
+    require_named_target        the operator names the database they mean
+                                (local or production) and the command refuses
+                                any other - for tools that run against both.
+
 Messages name settings, never values: DATABASE_URL carries a password.
 """
 from __future__ import annotations
@@ -83,5 +87,27 @@ def deliberate_target_problems(config: Settings) -> list[str]:
 
 def require_deliberate_target(operation: str, config: Settings | None = None) -> None:
     problems = deliberate_target_problems(config or default_settings)
+    if problems:
+        raise EnvironmentRefused(operation, problems)
+
+
+def named_target_problems(target: str, config: Settings) -> list[str]:
+    """The operator said which database they mean ("local" or "production");
+    refuse unless DATABASE_URL is that one. A local run can then never reach
+    Render, and a production run can never quietly change this PC's copy."""
+    if target == "local":
+        return local_development_problems(config)
+    if target == "production":
+        problems = deliberate_target_problems(config)
+        if config.database_is_local:
+            problems.append(
+                "--target production, but DATABASE_URL is a database on this machine"
+            )
+        return problems
+    return [f"unknown target {target!r}; use local or production"]
+
+
+def require_named_target(operation: str, target: str, config: Settings | None = None) -> None:
+    problems = named_target_problems(target, config or default_settings)
     if problems:
         raise EnvironmentRefused(operation, problems)

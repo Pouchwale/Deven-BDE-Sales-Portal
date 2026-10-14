@@ -10,6 +10,7 @@ access line itself, without the query string uvicorn's own line includes.
 """
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -139,6 +140,8 @@ def health() -> dict[str, str]:
     "am I on my development copy or on production?" is one request away -
     never the URL, host, user or password. `env` is the same value under the
     name the end-to-end runners check (they refuse anything but ENV=e2e).
+    `commit` is the git commit Render built (RENDER_GIT_COMMIT), so "is my
+    push live yet?" is answerable from outside; "unknown" anywhere else.
     """
     from app.db.session import engine
 
@@ -150,6 +153,7 @@ def health() -> dict[str, str]:
         "env": settings.ENV,
         # The dialect comes from the configured URL; no connection is made.
         "database": engine.dialect.name,
+        "commit": os.environ.get("RENDER_GIT_COMMIT", "").strip()[:7] or "unknown",
     }
 
 

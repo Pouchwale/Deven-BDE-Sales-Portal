@@ -22,17 +22,23 @@ What it deliberately does NOT do:
   * print, log or audit any password or hash;
   * create, delete, deactivate or rename anyone, or touch any account you did
     not name;
-  * reset "everyone" - there is no such option here on purpose.
+  * reset "everyone" - there is no such option here on purpose;
+  * guess the database: --target names the one you mean (local or
+    production) and the run is refused if DATABASE_URL is the other one.
 
 Usage
-    python -m app.seeds.reset_users --users shail,navya,parth --force-change
-    python -m app.seeds.reset_users --users superadmin --from-file /tmp/pw.json
-    RESET_PW_NAVYA=... python -m app.seeds.reset_users --users navya --from-env
+    python -m app.seeds.reset_users --target local --users shail,navya,parth --force-change
+    python -m app.seeds.reset_users --target production --users superadmin --from-file /tmp/pw.json
+    RESET_PW_NAVYA=... python -m app.seeds.reset_users --target local --users navya --from-env
+    RESET_PW_NAVYA=... python -m app.seeds.reset_users --target local --users navya --from-env --verify-only
 
 --from-file reads a JSON object {"username": "new password", ...}; the file is
 never echoed and should be deleted after the run (it holds live credentials).
 
 Flags
+    --target         local | production - required; must match DATABASE_URL
+    --verify-only    change nothing; report whether each account's stored
+                     password accepts the supplied one (PASS/FAIL)
     --force-change   require each person to choose a new password at next sign-in
     --yes            do not ask for confirmation (unattended runs)
 """
@@ -173,11 +179,34 @@ def run(identifiers: list[str], *, source: dict[str, str] | None, force_change: 
             del password
             flag = " (must change at next sign-in)" if force_change else ""
             print(
-                f"  {outcome.identifier:<24} hash updated: "
-                f"{'YES' if outcome.updated else 'NO'}  committed: YES  "
+                f"  {outcome.identifier:<24} {user.role:<12} reset: PASS  "
+                f"verified after commit: {'PASS' if outcome.updated else 'FAIL'}  "
                 f"sessions revoked: {outcome.sessions_revoked}{flag}"
             )
             outcomes.append(outcome)
+    return outcomes
+
+
+def verify(db: Session, identifiers: list[str], source: dict[str, str] | None) -> list[Outcome]:
+    """Does each account's stored hash accept its supplied password? Reads
+    only - for checking a reset (or a database) without changing it."""
+    outcomes: list[Outcome] = []
+    for ident in identifiers:
+        user = _find_user(db, ident)
+        if user is None:
+            outcomes.append(Outcome(ident, False, False, 0))
+            print(f"  {ident:<24} NOT FOUND")
+            continue
+        try:
+            password = _read_password_for(ident, source)
+        except ResetRefused as exc:
+            outcomes.append(Outcome(ident, True, False, 0))
+            print(f"  {ident:<24} {user.role:<12} SKIPPED - {exc}")
+            continue
+        accepted = verify_password(password, user.hashed_password)
+        del password
+        print(f"  {ident:<24} {user.role:<12} stored password accepts it: {'PASS' if accepted else 'FAIL'}")
+        outcomes.append(Outcome(ident, True, accepted, 0))
     return outcomes
 
 
@@ -200,11 +229,20 @@ def main(argv: list[str] | None = None) -> int:
         help="require each person to set a new password at next sign-in",
     )
     parser.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    parser.add_argument(
+        "--target", required=True, choices=("local", "production"),
+        help="the database you mean to change; refused unless DATABASE_URL is that one",
+    )
+    parser.add_argument(
+        "--verify-only", action="store_true",
+        help="change nothing: check each account's stored password accepts the supplied one",
+    )
     args = parser.parse_args(argv)
 
-    from app.core.environment_guard import require_deliberate_target
+    from app.core.environment_guard import require_deliberate_target, require_named_target
 
     require_deliberate_target("reset_users")
+    require_named_target("reset_users", args.target)
 
     identifiers = [u.strip() for u in args.users.split(",") if u.strip()]
     if not identifiers:
@@ -236,7 +274,18 @@ def main(argv: list[str] | None = None) -> int:
         source = _env_source(identifiers)
 
     # safe_database_url masks any password in the URL.
-    print(f"Target database: {settings.safe_database_url}")
+    print(f"Target: {args.target} - database {settings.safe_database_url}")
+    if args.verify_only:
+        try:
+            with SessionLocal() as db:
+                outcomes = verify(db, identifiers, source)
+        finally:
+            if source is not None:
+                source.clear()
+        passed = len([o for o in outcomes if o.updated])
+        print(f"\nVerified: {passed} PASS, {len(outcomes) - passed} FAIL/skipped. Nothing changed.")
+        return 0 if passed == len(outcomes) else 2
+
     print(f"Accounts to reset ({len(identifiers)}): {', '.join(identifiers)}")
     if args.force_change:
         print("Each will be required to change it at next sign-in.")

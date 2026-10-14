@@ -226,6 +226,21 @@ function Invoke-Retention([string]$Folder, [string]$Prefix, [int]$Daily = 14, [i
 }
 
 # ------------------------------------------------- the refresh, all or nothing
+# pg_restore into the LOCAL database, all or nothing. Skips database
+# extensions: a production dump carries the ones the host installs (Render:
+# pg_stat_statements), creating one needs a superuser the local role is not,
+# and the app uses none of them.
+function Invoke-LocalPgRestore($Local, [string]$Dump) {
+  $toc = & (Resolve-PgTool "pg_restore") --list $Dump
+  if ($LASTEXITCODE -ne 0) { throw "Cannot read $Dump." }
+  $list = "$Dump.restore-list"
+  $toc | Where-Object { $_ -notmatch ' EXTENSION ' } | Set-Content -LiteralPath $list -Encoding ASCII
+  try {
+    return Invoke-Pg "pg_restore" $Local @("--clean", "--if-exists", "--no-owner", "--no-acl", "--single-transaction", "--use-list", $list, $Dump) -WithDatabase
+  }
+  finally { Remove-Item -LiteralPath $list -Force -ErrorAction SilentlyContinue }
+}
+
 # Replaces the LOCAL database with the contents of $SourceDump. On any failure
 # after the restore, puts $UndoDump back. Never connects to production.
 function Invoke-LocalRestore($Local, [string]$SourceDump, [string]$UndoDump, [scriptblock]$Verify) {
@@ -233,7 +248,7 @@ function Invoke-LocalRestore($Local, [string]$SourceDump, [string]$UndoDump, [sc
   # on their locks. Same-role sessions may be ended without a superuser.
   Invoke-Pg "psql" $Local @("-q", "-At", "-c", "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity WHERE datname = current_database() AND pid <> pg_backend_pid() AND usename = current_user;") -WithDatabase | Out-Null
 
-  $r = Invoke-Pg "pg_restore" $Local @("--clean", "--if-exists", "--no-owner", "--no-acl", "--single-transaction", $SourceDump) -WithDatabase
+  $r = Invoke-LocalPgRestore $Local $SourceDump
   if ($r.ExitCode -ne 0) {
     throw "pg_restore failed (exit $($r.ExitCode)). It ran as ONE transaction, so the local database is unchanged."
   }
@@ -243,7 +258,7 @@ function Invoke-LocalRestore($Local, [string]$SourceDump, [string]$UndoDump, [sc
   catch {
     $reason = $_.Exception.Message
     Write-DbLog "ERROR" "Verification failed after the restore: $reason - putting the local database back."
-    $u = Invoke-Pg "pg_restore" $Local @("--clean", "--if-exists", "--no-owner", "--no-acl", "--single-transaction", $UndoDump) -WithDatabase
+    $u = Invoke-LocalPgRestore $Local $UndoDump
     if ($u.ExitCode -ne 0) {
       throw "Verification failed ($reason) AND the automatic undo failed. Restore by hand from: $UndoDump"
     }

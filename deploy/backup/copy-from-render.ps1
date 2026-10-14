@@ -158,7 +158,7 @@ try {
   catch {
     $reason = $_.Exception.Message
     Write-DbLog "ERROR" "$reason - putting the local database back."
-    $u = Invoke-Pg "pg_restore" $local @("--clean", "--if-exists", "--no-owner", "--no-acl", "--single-transaction", $undo.Path) -WithDatabase
+    $u = Invoke-LocalPgRestore $local $undo.Path
     if ($u.ExitCode -ne 0) { throw "$reason AND the automatic undo failed. Restore by hand from $($undo.Path)" }
     throw "$reason The local database was put back as it was."
   }

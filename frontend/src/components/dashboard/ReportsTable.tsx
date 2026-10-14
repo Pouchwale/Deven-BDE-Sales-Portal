@@ -88,10 +88,12 @@ export function ReportsTable({
                       </span>
                     </Link>
                   </TD>
-                  <TD>
+                  <TD data-label="Role">
                     <RoleBadge role={row.role} />
                   </TD>
-                  <TD className="text-muted">{row.team_name ?? "—"}</TD>
+                  <TD data-label="Team" className="text-muted">
+                    {row.team_name ?? "—"}
+                  </TD>
                   <TD
                     data-label="Open leads"
                     align="right"

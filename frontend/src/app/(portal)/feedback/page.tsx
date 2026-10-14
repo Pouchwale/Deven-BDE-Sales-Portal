@@ -183,7 +183,7 @@ function FeedbackInner() {
         </div>
       ) : null}
 
-      <div className="mb-5 grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:gap-3.5 xl:grid-cols-4">
         {analysis.loading || !stats ? (
           Array.from({ length: 4 }).map((_, index) => <StatTileSkeleton key={index} index={index} />)
         ) : (
@@ -321,17 +321,25 @@ function FeedbackInner() {
                   {analysis.data.departments.map((row) => (
                     <TR key={row.department_id}>
                       <TD className="font-medium">{row.department_name}</TD>
-                      <TD align="right">
+                      <TD data-label="Average" align="right">
                         {row.average_rating === null ? (
                           <span className="text-subtle">—</span>
                         ) : (
-                          row.average_rating.toFixed(2)
+                          <RatingMeter
+                            value={row.average_rating}
+                            max={analysis.data?.scale_max ?? 5}
+                            flagged={row.below_threshold}
+                          />
                         )}
                       </TD>
-                      <TD align="right" className={row.response_count === 0 ? "text-subtle" : ""}>
+                      <TD
+                        data-label="Responses"
+                        align="right"
+                        className={row.response_count === 0 ? "text-subtle" : ""}
+                      >
                         {formatNumber(row.response_count)}
                       </TD>
-                      <TD>
+                      <TD data-label="Status">
                         {row.below_threshold ? (
                           <Badge className="border-transparent bg-danger-soft text-danger">
                             Below threshold
@@ -905,4 +913,24 @@ function pendingEmptyDescription(population: FeedbackPopulation | null): string 
   return `All ${formatNumber(population.eligible)} eligible ${
     population.eligible === 1 ? "account has" : "accounts have"
   } answered. Nothing is outstanding.`;
+}
+
+/**
+ * A rating as a number AND a short bar against the scale, so 2.4 and 4.6 read
+ * apart before anybody parses the digits. The number stays the accessible
+ * value; the bar is decoration on top of it.
+ */
+function RatingMeter({ value, max, flagged }: { value: number; max: number; flagged: boolean }) {
+  const percent = max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0;
+  return (
+    <span className="inline-flex items-center gap-2.5">
+      <span aria-hidden className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-hover">
+        <span
+          className={flagged ? "block h-full rounded-full bg-danger" : "block h-full rounded-full bg-brand-500"}
+          style={{ width: `${percent}%` }}
+        />
+      </span>
+      <span className="font-medium tabular-nums text-content">{value.toFixed(2)}</span>
+    </span>
+  );
 }

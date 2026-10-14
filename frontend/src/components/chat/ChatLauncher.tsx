@@ -30,8 +30,8 @@ const ChatDrawer = dynamic(() => loadDrawer().then((module) => module.ChatDrawer
  */
 export function ChatLauncher({ user }: { user: User }) {
   const { available, open, setOpen } = useChat();
-  // Once opened it stays mounted: the drawer plays its own exit animation, and
-  // remounting it on every close would flicker. Adjusted during render, the
+  // Once opened it stays mounted: the panel plays its own exit animation, and
+  // remounting it on every close would refetch its chunk state. Adjusted during render, the
   // same way ChatDrawer derives its own `closing` flag from `open`.
   const [everOpened, setEverOpened] = useState(false);
   if (open && !everOpened) setEverOpened(true);
@@ -99,6 +99,8 @@ export function ChatLauncher({ user }: { user: User }) {
             onFocus={() => void loadDrawer()}
             aria-label="Ask the assistant"
             aria-keyshortcuts="Control+K"
+            aria-haspopup="dialog"
+            data-chat-launcher
             className={cn(
               "animate-pop relative grid size-12 place-items-center rounded-full",
               "bg-brand-600 text-white card-shadow-lg ring-1 ring-brand-700/20",

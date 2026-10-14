@@ -122,8 +122,9 @@ def mark_all_read(db: Session, user: User) -> int:
 
 
 # ------------------------------------------------- lazy follow-up reminders
-def ensure_followup_notifications(db: Session, user: User) -> int:
+def ensure_followup_notifications(db: Session, user: User) -> list[Notification]:
     """Create any missing "reference follow-up due" reminders for this user.
+    Returns the ones created now, so the bell can pop them up once.
 
     Reads the same population Reference Tracking does: converted leads the
     person is responsible for. It used to read the SAP customer book, so a
@@ -148,7 +149,7 @@ def ensure_followup_notifications(db: Session, user: User) -> int:
         )
     ).all()
     if not due:
-        return 0
+        return []
 
     def key_for(lead_id: uuid.UUID) -> str:
         return f"followup:{user.id}:{lead_id}:{today.isoformat()}"
@@ -162,25 +163,24 @@ def ensure_followup_notifications(db: Session, user: User) -> int:
         ).scalars()
     )
 
-    created = 0
+    created: list[Notification] = []
     for lead_id, name, next_reference_date in due:
         dedupe_key = key_for(lead_id)
         if dedupe_key in existing:
             continue
         existing.add(dedupe_key)
-        db.add(
-            Notification(
-                user_id=user.id,
-                type=str(NotificationType.REFERENCE_FOLLOWUP_DUE),
-                title=f"Reference follow-up due: {name}",
-                body=(
-                    f"You said you would ask {name} again on "
-                    f"{next_reference_date:%d %b %Y}."
-                ),
-                entity_type="LEAD",
-                entity_id=lead_id,
-                dedupe_key=dedupe_key,
-            )
+        reminder = Notification(
+            user_id=user.id,
+            type=str(NotificationType.REFERENCE_FOLLOWUP_DUE),
+            title=f"Reference follow-up due: {name}",
+            body=(
+                f"You said you would ask {name} again on "
+                f"{next_reference_date:%d %b %Y}."
+            ),
+            entity_type="LEAD",
+            entity_id=lead_id,
+            dedupe_key=dedupe_key,
         )
-        created += 1
+        db.add(reminder)
+        created.append(reminder)
     return created

@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock, Plus, Trash2, X } from "lucide-react";
+import { History, Minus, SquarePen, Trash2 } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -10,21 +10,32 @@ import { ChatComposer } from "@/components/chat/ChatComposer";
 import { ChatEmptyState } from "@/components/chat/ChatEmptyState";
 import { ChatUnconfigured } from "@/components/chat/ChatUnconfigured";
 import { MessageList } from "@/components/chat/MessageList";
-import { Button } from "@/components/ui/Button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/primitives/tooltip";
 import {
   composerPlaceholder,
   orderSuggestions,
   workloadLine,
 } from "@/lib/assistantContext";
 import { useChat } from "@/lib/chat";
-import { useKeyboardInset } from "@/lib/useKeyboardInset";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/lib/format";
+import { gsap, prefersReducedMotion, useGSAP } from "@/lib/motion";
+import { useKeyboardInset } from "@/lib/useKeyboardInset";
 import type { User } from "@/types/api";
 
-/** Matches --animate-slide-out-right. */
-const EXIT_MS = 200;
+const PHONE = "(max-width: 639px)";
 
+/**
+ * The assistant panel.
+ *
+ * Desktop: a floating panel anchored bottom-right, where the launcher was -
+ * the page behind stays live, because reading an answer against the numbers
+ * it came from is the point. Phone: a near-full-screen sheet over a dimmed
+ * page, because there is no room to sit beside anything.
+ *
+ * Loaded lazily by ChatLauncher on first open, so GSAP and everything here
+ * stays out of the bundle of a visit that never opens it.
+ */
 export function ChatDrawer({ user }: { user: User }) {
   const {
     open,
@@ -35,6 +46,7 @@ export function ChatDrawer({ user }: { user: User }) {
     suggestions,
     busy,
     send,
+    retry,
     stop,
     reset,
     history,
@@ -44,6 +56,7 @@ export function ChatDrawer({ user }: { user: User }) {
   } = useChat();
   const [showHistory, setShowHistory] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
+  const backdropRef = useRef<HTMLDivElement>(null);
   const pathname = usePathname();
 
   // On a phone the sheet is pinned to the bottom edge, and the keyboard would
@@ -59,22 +72,66 @@ export function ChatDrawer({ user }: { user: User }) {
   const workload = useMemo(() => workloadLine(dashboard), [dashboard]);
   const placeholder = useMemo(() => composerPlaceholder(pathname), [pathname]);
 
-  // Same derived-on-prop-change pattern as Modal: the panel outlives `open`
-  // by one exit animation so closing is a movement, not a disappearance.
+  // The panel outlives `open` by one exit animation, so closing is a
+  // movement rather than a disappearance. Derived during render, the same
+  // way Modal does it.
+  const [rendered, setRendered] = useState(open);
   const [previousOpen, setPreviousOpen] = useState(open);
-  const [closing, setClosing] = useState(false);
-
   if (previousOpen !== open) {
     setPreviousOpen(open);
-    setClosing(!open);
-    if (!open) setShowHistory(false);
+    if (open) setRendered(true);
+    else setShowHistory(false);
   }
 
-  useEffect(() => {
-    if (!closing) return;
-    const timer = window.setTimeout(() => setClosing(false), EXIT_MS);
-    return () => window.clearTimeout(timer);
-  }, [closing]);
+  // Open and close. Transform and opacity only; the close is the open played
+  // quicker in reverse. Reduced motion: no movement, and the panel goes the
+  // moment it is closed.
+  useGSAP(
+    () => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const reduce = prefersReducedMotion();
+      const phone = window.matchMedia(PHONE).matches;
+      const hidden = phone ? { opacity: 0, y: 32 } : { opacity: 0, y: 12, scale: 0.97 };
+
+      if (open) {
+        if (!reduce) {
+          gsap.fromTo(panel, hidden, {
+            opacity: 1,
+            y: 0,
+            scale: 1,
+            duration: phone ? 0.34 : 0.28,
+            ease: "power3.out",
+            clearProps: "opacity,transform",
+          });
+          if (backdropRef.current) {
+            gsap.fromTo(backdropRef.current, { opacity: 0 }, { opacity: 1, duration: 0.24 });
+          }
+        }
+        // Desktop: straight into the composer. Phone: the panel itself, so
+        // the keyboard does not cover the suggestions before they are read.
+        const field = panel.querySelector<HTMLTextAreaElement>("textarea");
+        if (field && !phone) field.focus({ preventScroll: true });
+        else panel.focus({ preventScroll: true });
+        return;
+      }
+
+      const finish = () => {
+        setRendered(false);
+        // Back to where the person came from, if they were still in here.
+        if (!document.activeElement || panel.contains(document.activeElement)) {
+          document.querySelector<HTMLElement>("[data-chat-launcher]")?.focus();
+        }
+      };
+      if (reduce) {
+        finish();
+        return;
+      }
+      gsap.to(panel, { ...hidden, duration: 0.18, ease: "power2.in", onComplete: finish });
+      if (backdropRef.current) gsap.to(backdropRef.current, { opacity: 0, duration: 0.18 });
+    },
+    { dependencies: [open] },
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -83,17 +140,18 @@ export function ChatDrawer({ user }: { user: User }) {
       if (event.key === "Escape") setOpen(false);
     };
 
-    // Clicking anywhere outside closes it, the way every panel of this shape
-    // behaves. `mousedown` rather than `click`: a click that STARTS inside
-    // the panel and drifts out - selecting an answer to copy it - must not
-    // count as leaving.
+    // Clicking outside closes it on desktop, the way every panel of this
+    // shape behaves. `mousedown` rather than `click`: a selection that STARTS
+    // inside the panel and drifts out must not count as leaving.
     const onPointerDown = (event: MouseEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
       if (panelRef.current?.contains(target)) return;
+      // Menus and tooltips render in their own portals.
+      if ((target as Element).closest?.("[data-radix-popper-content-wrapper]")) return;
       // The launcher owns its own toggle; letting this fire too would close
       // and immediately reopen.
-      if ((target as Element).closest?.('[aria-label="Ask the assistant"]')) return;
+      if ((target as Element).closest?.("[data-chat-launcher]")) return;
       setOpen(false);
     };
 
@@ -106,19 +164,21 @@ export function ChatDrawer({ user }: { user: User }) {
     };
   }, [open, setOpen]);
 
-  const mounted = open || closing;
-  if (!mounted || typeof document === "undefined") return null;
+  if (!rendered || typeof document === "undefined") return null;
+
+  const status = !enabled
+    ? { label: "Setup needed", dot: "bg-warning" }
+    : busy
+      ? { label: "Working on it…", dot: "bg-brand-500 motion-safe:animate-pulse" }
+      : { label: "Ready", dot: "bg-success" };
 
   return createPortal(
     <>
-      {/* Mobile only. On a wider screen the page behind stays live and
-          clickable - dimming it would make the assistant modal, and reading
-          the answer against the numbers it came from is the whole point. */}
+      {/* Phone only. On a wider screen the page behind stays live. */}
       <div
-        className={cn(
-          "fixed inset-0 z-40 bg-black/35 backdrop-blur-[1px] sm:hidden",
-          closing ? "animate-fade-out" : "animate-fade-in",
-        )}
+        ref={backdropRef}
+        aria-hidden
+        className="fixed inset-0 z-40 bg-black/40 sm:hidden"
         onMouseDown={() => setOpen(false)}
       />
 
@@ -126,25 +186,19 @@ export function ChatDrawer({ user }: { user: User }) {
         ref={panelRef}
         role="dialog"
         aria-label="Portal assistant"
+        tabIndex={-1}
         style={
-          // Only the phone layout is bottom-anchored; above `sm` the panel is
-          // full-height at the side and the keyboard is irrelevant.
           keyboardInset > 0
             ? ({ "--keyboard-inset": `${keyboardInset}px` } as React.CSSProperties)
             : undefined
         }
         className={cn(
-          "fixed z-50 flex flex-col border-line bg-surface card-shadow-lg",
-          // Phone: a bottom sheet that leaves the top of the page visible, so
-          // the assistant never buries where you were. Tablet and up: the
-          // side panel, which can sit beside the content instead of over it.
-          "inset-x-0 bottom-[var(--keyboard-inset,0px)] top-[12dvh] rounded-t-2xl border-x border-t",
-          "sm:bottom-0",
-          "sm:inset-y-0 sm:left-auto sm:right-0 sm:top-0 sm:w-[400px]",
-          "sm:rounded-none sm:border-x-0 sm:border-t-0 sm:border-l",
-          closing
-            ? "animate-slide-out-down sm:animate-slide-out-right"
-            : "animate-slide-in-up sm:animate-slide-in-right",
+          "fixed z-50 flex flex-col overflow-hidden border border-line bg-surface card-shadow-lg focus:outline-none",
+          // Phone: nearly the whole screen, keyboard-aware.
+          "inset-x-0 bottom-[var(--keyboard-inset,0px)] top-[max(0.5rem,env(safe-area-inset-top))] rounded-t-2xl border-b-0",
+          // Tablet and up: a floating panel where the launcher sits.
+          "sm:inset-auto sm:bottom-5 sm:right-5 sm:h-[min(680px,calc(100dvh-2.5rem))] sm:w-[400px]",
+          "sm:origin-bottom-right sm:rounded-2xl sm:border-b",
         )}
       >
         {/* Phone only: the affordance that says "this is a sheet". */}
@@ -153,77 +207,73 @@ export function ChatDrawer({ user }: { user: User }) {
         </div>
 
         {/* ------------------------------------------------------- header */}
-        <header className="flex items-center gap-2 border-b border-line px-3.5 py-3">
-          <div
-            className={cn(
-              "grid size-7 place-items-center rounded-lg",
-              "bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-300",
-            )}
-          >
-            <AssistantMark className="size-4" />
+        <header className="flex items-center gap-2.5 border-b border-line py-2.5 pl-4 pr-2">
+          <div className="relative grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-white">
+            <AssistantMark className="size-[18px]" />
+            <span
+              aria-hidden
+              className={cn(
+                "absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full ring-2 ring-surface",
+                status.dot,
+              )}
+            />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[13.5px] font-semibold text-content">Assistant</p>
-            <p className="truncate text-[11.5px] text-subtle">Answers from your own data</p>
+            <p className="truncate text-[14px] font-semibold leading-tight text-content">
+              Assistant
+            </p>
+            <p className="truncate text-[11.5px] leading-tight text-subtle" aria-live="polite">
+              {status.label}
+            </p>
           </div>
 
-          <Button
-            variant="ghost"
-            size="icon"
-            // Nothing to list and nothing to reset until it can answer.
-            className={cn(
-              !enabled && "hidden",
-              showHistory && "bg-surface-hover text-content",
-            )}
-            aria-label={showHistory ? "Back to chat" : "Past conversations"}
-            title="Past conversations"
-            onClick={() => setShowHistory((value) => !value)}
-          >
-            <Clock className="size-4" aria-hidden />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(!enabled && "hidden")}
-            aria-label="New conversation"
-            title="New conversation"
-            onClick={() => {
-              reset();
-              setShowHistory(false);
-            }}
-          >
-            <Plus className="size-4" aria-hidden />
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={() => setOpen(false)}>
-            <X className="size-4" aria-hidden />
-          </Button>
+          {enabled ? (
+            <>
+              <HeaderButton
+                label={showHistory ? "Back to chat" : "Past conversations"}
+                pressed={showHistory}
+                onClick={() => setShowHistory((value) => !value)}
+              >
+                <History className="size-4" aria-hidden />
+              </HeaderButton>
+              <HeaderButton
+                label="New conversation"
+                onClick={() => {
+                  reset();
+                  setShowHistory(false);
+                }}
+              >
+                <SquarePen className="size-4" aria-hidden />
+              </HeaderButton>
+            </>
+          ) : null}
+          <HeaderButton label="Close assistant" onClick={() => setOpen(false)}>
+            <Minus className="size-4" aria-hidden />
+          </HeaderButton>
         </header>
 
         {/* -------------------------------------------------------- body */}
         {showHistory ? (
-          <div className="flex-1 overflow-y-auto px-3 py-3">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-3">
             {history.length === 0 ? (
-              <p className="px-1 py-6 text-center text-[13px] text-subtle">
-                No past conversations yet.
-              </p>
+              <div className="px-4 py-10 text-center">
+                <History className="mx-auto size-5 text-subtle" aria-hidden />
+                <p className="mt-2 text-[13px] font-medium text-content">No past conversations</p>
+                <p className="mt-0.5 text-[12.5px] text-subtle">
+                  Conversations you finish appear here.
+                </p>
+              </div>
             ) : (
-              <ul className="space-y-1">
-                {history.map((conversation, index) => (
-                  <li
-                    key={conversation.id}
-                    style={{ animationDelay: `${index * 35}ms` }}
-                    className="stagger group flex items-center gap-1"
-                  >
+              <ul className="space-y-0.5">
+                {history.map((conversation) => (
+                  <li key={conversation.id} className="group flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => {
                         void load(conversation.id);
                         setShowHistory(false);
                       }}
-                      className={cn(
-                        "min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left transition-colors",
-                        "hover:bg-surface-hover",
-                      )}
+                      className="min-w-0 flex-1 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-hover"
                     >
                       <span className="block truncate text-[13px] text-content">
                         {conversation.title ?? "Untitled"}
@@ -232,15 +282,19 @@ export function ChatDrawer({ user }: { user: User }) {
                         {formatRelative(conversation.updated_at)}
                       </span>
                     </button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Delete conversation"
-                      className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                    <button
+                      type="button"
+                      aria-label={`Delete conversation: ${conversation.title ?? "Untitled"}`}
                       onClick={() => void remove(conversation.id)}
+                      className={cn(
+                        "grid size-9 shrink-0 place-items-center rounded-lg text-subtle transition",
+                        "hover:bg-danger-soft hover:text-danger",
+                        // Always visible on touch screens, where there is no hover.
+                        "sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100",
+                      )}
                     >
                       <Trash2 className="size-3.5" aria-hidden />
-                    </Button>
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -251,7 +305,7 @@ export function ChatDrawer({ user }: { user: User }) {
             <ChatUnconfigured setup={setup} />
           </div>
         ) : turns.length === 0 ? (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto overscroll-contain">
             <ChatEmptyState
               name={user.name}
               suggestions={ordered}
@@ -260,21 +314,54 @@ export function ChatDrawer({ user }: { user: User }) {
             />
           </div>
         ) : (
-          <MessageList turns={turns} role={user.role} onNavigate={() => setOpen(false)} />
+          <MessageList
+            turns={turns}
+            role={user.role}
+            onNavigate={() => setOpen(false)}
+            onRetry={retry}
+          />
         )}
 
         {/* No composer without a key: every send would be a 503, and a dead
             input is a worse answer than an explanation. */}
         {!showHistory && enabled ? (
-          <ChatComposer
-            busy={busy}
-            onSend={send}
-            onStop={stop}
-            placeholder={placeholder}
-          />
+          <ChatComposer busy={busy} onSend={send} onStop={stop} placeholder={placeholder} />
         ) : null}
       </aside>
     </>,
     document.body,
+  );
+}
+
+function HeaderButton({
+  label,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  pressed?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-pressed={pressed}
+          onClick={onClick}
+          className={cn(
+            "grid size-10 shrink-0 place-items-center rounded-lg text-muted transition-colors",
+            "hover:bg-surface-hover hover:text-content",
+            pressed && "bg-surface-hover text-content",
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
   );
 }

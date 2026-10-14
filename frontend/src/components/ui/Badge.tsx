@@ -1,3 +1,5 @@
+import { CheckCircle2, CircleDashed, Clock3, XCircle } from "lucide-react";
+
 import { cn } from "@/lib/cn";
 import {
   REFERENCE_STATUS_LABELS,
@@ -33,6 +35,16 @@ export function RoleBadge({ role, className }: { role: Role; className?: string 
   );
 }
 
+/** A shape per status as well as a colour, so the four read apart for
+ *  somebody who cannot tell green from amber - or is looking at a phone in
+ *  the sun. */
+const REFERENCE_STATUS_ICON: Record<ReferenceStatus, React.ComponentType<{ className?: string }>> = {
+  NOT_ASKED: CircleDashed,
+  TAKEN: CheckCircle2,
+  PENDING: Clock3,
+  DECLINED: XCircle,
+};
+
 export function ReferenceStatusBadge({
   status,
   className,
@@ -40,8 +52,10 @@ export function ReferenceStatusBadge({
   status: ReferenceStatus;
   className?: string;
 }) {
+  const Icon = REFERENCE_STATUS_ICON[status];
   return (
     <Badge className={cn(REFERENCE_STATUS_TONE[status], className)}>
+      {Icon ? <Icon className="size-3 shrink-0" aria-hidden /> : null}
       {REFERENCE_STATUS_LABELS[status] ?? status}
     </Badge>
   );

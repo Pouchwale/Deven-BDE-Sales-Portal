@@ -6,7 +6,10 @@ import { cn } from "@/lib/cn";
 import type { Dashboard } from "@/types/api";
 
 /**
- * Where the book stands, as three proportions rather than three numbers.
+ * Where the reference work stands, as a proportion of the accounts that are
+ * ready to ask today. Leads converted was removed (2026-10-13): its won count
+ * includes accounts still waiting for their reference date, and next to the
+ * ready-only numbers it read as missing work.
  *
  * A KPI tile answers "how many". This answers "out of how many", which is the
  * question a number on its own always leaves open — 5 references is excellent
@@ -40,7 +43,6 @@ export function CoverageStrip({ data }: { data: Dashboard }) {
     const references = data.references;
     const accounts = references.eligible_accounts;
     const asked = accounts - references.not_asked;
-    const answered = data.feedback?.total_responses ?? 0;
 
     const out: Bar[] = [
       {
@@ -50,26 +52,7 @@ export function CoverageStrip({ data }: { data: Dashboard }) {
         caption: `${references.references_taken} said yes`,
         tone: "brand",
       },
-      {
-        label: "Leads converted",
-        done: data.leads.converted,
-        total: data.leads.total,
-        caption: `${data.leads.open} still open`,
-        tone: "success",
-      },
     ];
-
-    // Only when the caller may read feedback at all — otherwise the bar would
-    // be a zero they are not entitled to interpret.
-    if (data.feedback) {
-      out.push({
-        label: "Feedback received",
-        done: answered,
-        total: answered + data.feedback_pending,
-        caption: `${data.feedback_pending} still owed`,
-        tone: "warning",
-      });
-    }
 
     return out.filter((bar) => bar.total > 0);
   }, [data]);
@@ -78,11 +61,11 @@ export function CoverageStrip({ data }: { data: Dashboard }) {
 
   return (
     <section
+      data-enter
       className={cn(
-        "stagger mb-4 grid grid-cols-1 gap-x-8 gap-y-4 rounded-card border border-line",
-        "bg-surface px-5 py-4 card-shadow sm:grid-cols-2 lg:grid-cols-3",
+        "mb-4 grid grid-cols-1 gap-x-8 gap-y-4 rounded-card border border-line",
+        "bg-surface px-5 py-4 card-shadow",
       )}
-      style={{ "--index": 5 } as React.CSSProperties}
       aria-label="Coverage"
     >
       {bars.map((bar) => (

@@ -7,6 +7,7 @@ import { ChatLauncher } from "@/components/chat/ChatLauncher";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Spinner } from "@/components/ui/Feedback";
+import { TooltipProvider } from "@/components/ui/primitives/tooltip";
 import { cn } from "@/lib/cn";
 import { useNavCollapsed } from "@/lib/useNavCollapsed";
 import { useAuth } from "@/lib/auth";
@@ -74,7 +75,11 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
   return (
     <NotificationsProvider>
       <ChatProvider>
-        <PortalShell>{children}</PortalShell>
+        {/* Here rather than at the root: the sign-in pages have no tooltips
+            and should not download Radix for them. */}
+        <TooltipProvider>
+          <PortalShell>{children}</PortalShell>
+        </TooltipProvider>
       </ChatProvider>
     </NotificationsProvider>
   );
@@ -96,28 +101,8 @@ function PortalShell({ children }: { children: React.ReactNode }) {
    */
   const [navCollapsed, toggleNav] = useNavCollapsed();
 
-  // The drawer closes from the nav links themselves (Sidebar passes onClose
-  // to every one), so there is no need to watch the pathname for it.
-
-  // Escape closes it, and the page behind stops scrolling while it is open —
-  // without the lock, a swipe on the backdrop scrolls the page underneath,
-  // which reads as the app having lost track of what you are touching.
-  useEffect(() => {
-    if (!navOpen) return;
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setNavOpen(false);
-    };
-    document.addEventListener("keydown", onKeyDown);
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [navOpen]);
+  // The sheet closes from the nav links themselves (Sidebar passes onClose to
+  // every one); Escape, the overlay, focus and the scroll lock are Radix's.
 
   // PortalLayout renders this only with a signed-in user; a sign-out makes it
   // swap back to the loading screen, so this is just the type narrowing.
@@ -144,6 +129,7 @@ function PortalShell({ children }: { children: React.ReactNode }) {
         <Topbar
           user={user}
           title={titleFor(pathname)}
+          unread={unread}
           navOpen={navOpen}
           onOpenNav={() => setNavOpen(true)}
         />
@@ -152,7 +138,9 @@ function PortalShell({ children }: { children: React.ReactNode }) {
             would only ever run once, on first load. */}
         <main
           key={pathname}
-          className="page-enter mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:py-8"
+          // pb-24 keeps the last row of any page - often its action column -
+          // clear of the floating assistant button.
+          className="page-enter mx-auto w-full max-w-[1400px] px-4 pb-24 pt-5 sm:px-6 sm:pt-6 lg:pt-8"
         >
           {children}
         </main>

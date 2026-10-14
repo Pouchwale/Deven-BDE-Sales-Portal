@@ -244,7 +244,7 @@ def test_stats_reflect_what_was_recorded(client, users) -> None:
     )
 
 
-def test_follow_ups_show_only_dates_that_have_arrived(client, users) -> None:
+def test_a_later_with_a_future_date_is_already_a_follow_up(client, users) -> None:
     headers = sign_in(client, users["Parth Fulvani"])
     customer = subject_lead(client, users)
 
@@ -258,15 +258,13 @@ def test_follow_ups_show_only_dates_that_have_arrived(client, users) -> None:
             "next_reference_date": future,
         },
     )
-    assert client.get("/api/references/follow-ups", headers=headers).json() == []
-    # ...but it is visible when you deliberately ask for what is coming.
-    upcoming = client.get(
-        "/api/references/follow-ups",
-        params={"include_future": True},
-        headers=headers,
-    ).json()
+    # Every "later" is a follow-up from the moment it is recorded (agreed
+    # 2026-10-03), not only once its date arrives - just not overdue yet.
+    upcoming = client.get("/api/references/follow-ups", headers=headers).json()
     assert len(upcoming) == 1
     assert upcoming[0]["days_overdue"] == 0
+    stats = client.get("/api/references/stats", headers=headers).json()
+    assert stats["follow_ups_due"] == 1
 
 
 def test_an_overdue_follow_up_reports_how_late_it_is(client, users) -> None:
@@ -482,3 +480,42 @@ def test_follow_ups_can_be_grouped_by_owner(client, users) -> None:
     ).json()
     owners = [row["owner_name"] for row in grouped]
     assert owners == sorted(owners)
+
+
+def test_ready_to_ask_open_only_leaves_out_completed_asks(client, users) -> None:
+    """Agreed 2026-10-13: the Ready to ask list is the work still to do -
+    not asked yet, or "later". A completed ask leaves it."""
+    headers = sign_in(client, users["Parth Fulvani"])
+    fresh = subject_lead(client, users, name="Fresh Co")
+    later = subject_lead(client, users, name="Later Co")
+    done = subject_lead(client, users, name="Done Co")
+    client.post(
+        "/api/references",
+        headers=headers,
+        json={"lead_id": later["id"], "outcome": "NO",
+              "next_reference_date": (date.today() + timedelta(days=5)).isoformat()},
+    )
+    client.post("/api/references", headers=headers, json={"lead_id": done["id"], "outcome": "NOT_SHARED"})
+
+    rows = client.get(
+        "/api/references/accounts", params={"open_only": True}, headers=headers
+    ).json()
+    ids = {row["subject_id"] for row in rows}
+    assert fresh["id"] in ids and later["id"] in ids
+    assert done["id"] not in ids
+
+
+def test_a_due_later_pops_up_once(client, users) -> None:
+    """The bell poll that creates a follow-up reminder returns it, so the page
+    can pop it up - and only that poll, so it pops up once."""
+    headers = sign_in(client, users["Parth Fulvani"])
+    lead = subject_lead(client, users, name="Call Back Co")
+    client.post(
+        "/api/references",
+        headers=headers,
+        json={"lead_id": lead["id"], "outcome": "NO", "next_reference_date": date.today().isoformat()},
+    )
+    first = client.get("/api/notifications/unread-count", headers=headers).json()
+    assert [n["title"] for n in first["new"]] == [f"Reference follow-up due: {lead['name']}"]
+    second = client.get("/api/notifications/unread-count", headers=headers).json()
+    assert second["new"] == []

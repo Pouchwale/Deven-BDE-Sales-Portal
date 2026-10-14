@@ -667,10 +667,12 @@ variable is missing; everyone else is told to ask one. The `setup` block in
 `/chat/status` is null for non-admins and never contains the key.
 **Admin → Settings** shows the same state on a card.
 
-> The assistant is served by **Groq** (`llama-3.3-70b-versatile`), chosen for
-> production status, a 131k context and **parallel** tool calling — the loop
-> dispatches every call in a turn together, so a serial-only model costs an
-> extra round trip. `GROQ_MODEL` swaps it with no code change.
+> The assistant is served by **Groq** (`openai/gpt-oss-120b` by default), a
+> model with reliable, **parallel** tool calling — the loop dispatches every
+> call in a turn together, so a serial-only model costs an extra round trip.
+> `GROQ_MODEL` swaps it with no code change. Groq's free tier allows ~8,000
+> tokens a minute *per model* and one tool-using question costs ~6–9k, so when
+> a model is rate-limited the next one in `GROQ_FALLBACK_MODELS` takes the call.
 
 ### The one rule
 
@@ -724,7 +726,8 @@ Consequences worth stating plainly:
 |---|---|---|
 | `GROQ_API_KEY` | *(empty)* | No key, no assistant. Never returned by the API. |
 | `CHAT_ENABLED` | `false` | Both this and a key must be set. |
-| `GROQ_MODEL` | *(set in .env)* | Any model the key can reach. |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` | Any model the key can reach. |
+| `GROQ_FALLBACK_MODELS` | `openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b` | Tried in order when a model is rate-limited or withdrawn. Blank disables. |
 | `CHAT_TEMPERATURE` | `0.2` | Low on purpose: this reports numbers. |
 | `CHAT_MAX_TOKENS` | `2048` | Ceiling on one answer. |
 | `CHAT_MAX_TOOL_CALLS` | `6` | Turns before the loop gives up. The last one is asked without tools, so it always produces an answer. |

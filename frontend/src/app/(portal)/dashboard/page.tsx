@@ -5,53 +5,42 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
-  Gauge,
   Inbox,
   Percent,
   ReceiptText,
-  Send,
+  Target,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { RangeToggle, type MonthRange } from "@/components/charts/RangeToggle";
 import { HBarChart, TrendLine } from "@/components/charts/lazy";
 import { ReportsTable } from "@/components/dashboard/ReportsTable";
-import { StatSection, StatTile, StatTileSkeleton } from "@/components/dashboard/StatTile";
+import {
+  StatSection,
+  StatSectionSkeleton,
+  StatTile,
+} from "@/components/dashboard/StatTile";
 import { CoverageStrip } from "@/components/dashboard/CoverageStrip";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
-import { ErrorState } from "@/components/ui/Feedback";
+import { ErrorState, Skeleton } from "@/components/ui/Feedback";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatNumber } from "@/lib/format";
+import { useEnterStagger } from "@/lib/motion";
 import { useAsync } from "@/lib/useAsync";
-import type { ReferenceStats } from "@/types/api";
-
-/**
- * Why the eligible count is smaller than the won count — said on the tile.
- *
- * A bare "22" next to a "3" invites the wrong conclusion. These are three
- * genuinely different situations and only one of them is a problem:
- * nothing synced at all, synced but still inside the 10-day wait, or
- * everything already actionable.
- */
-function referenceHint(references: ReferenceStats): string {
-  if (references.converted_leads === 0) return "Nothing won yet";
-  if (references.eligible_accounts > 0) {
-    return `${formatNumber(references.eligible_accounts)} ready to ask today`;
-  }
-  if (references.waiting_period > 0) {
-    return `${formatNumber(references.waiting_period)} before their reference date`;
-  }
-  return "None ready to ask yet";
-}
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useAsync((signal) => api.dashboard(signal), []);
   const [trendRange, setTrendRange] = useState<MonthRange>(6);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  // One entrance, when the numbers first land - not on every background
+  // refresh, and never for anybody who has asked for reduced motion.
+  useEnterStagger(bodyRef, [Boolean(data)]);
 
   if (error) {
     return (
@@ -102,13 +91,16 @@ export default function DashboardPage() {
       ) : null}
 
       {loading || !data ? (
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5 lg:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <StatTileSkeleton key={index} index={index} />
-          ))}
+        <div aria-busy="true" aria-label="Loading your numbers">
+          <Skeleton className="mb-4 h-[104px] w-full rounded-card" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {Array.from({ length: 2 }).map((_, index) => (
+              <StatSectionSkeleton key={index} />
+            ))}
+          </div>
         </div>
       ) : (
-        <>
+        <div ref={bodyRef}>
           {/* Where the book stands as proportions, not counts. A tile says
               "how many"; this says "out of how many", which is the question a
               bare number always leaves open. */}
@@ -120,23 +112,23 @@ export default function DashboardPage() {
               tile of their own — a dashboard you have to read twice is worse
               than one that shows less.
              ------------------------------------------------------------- */}
-          <StatSection title="Reference Tracking" href="/references">
-            {/*
-              The won book, and why only part of it is actionable.
-
-              These always add up - eligible + waiting + awaiting sync equals
-              converted - so a small "eligible" number is explained on the tile
-              rather than reading as "we have no customers". Before this, the
-              tile counted SAP accounts while the next module counted converted
-              leads, and the two had no row in common.
-            */}
+          <div className="mb-4 grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2">
+          <StatSection title="Reference Tracking" href="/references" icon={Users}>
+            {/* Only accounts that can be asked TODAY. Won accounts still
+                inside their waiting period are left out on purpose (agreed
+                2026-10-13): counting them next to "ready" numbers read as
+                missing work. They appear here on their reference date. */}
             <StatTile
               index={0}
-              label="Converted leads"
-              value={data.references.converted_leads}
-              hint={referenceHint(data.references)}
+              label="Ready to ask"
+              value={data.references.not_asked + data.references.references_pending}
+              hint={
+                data.references.eligible_accounts > 0
+                  ? `${formatNumber(data.references.not_asked)} not asked · ${formatNumber(data.references.references_pending)} later`
+                  : "None ready to ask yet"
+              }
               icon={Building2}
-              href="/leads?status=CONVERTED"
+              href="/references"
             />
             {/*
               Done over total, not a bare number.
@@ -178,7 +170,7 @@ export default function DashboardPage() {
                 value={`${data.references.reference_score}%`}
                 hint={
                   data.references.eligible_accounts > 0
-                    ? `${data.references.references_taken} of ${data.references.eligible_accounts} gave a reference`
+                    ? `${data.references.requests_completed} of ${data.references.eligible_accounts} taken or declined`
                     : "No accounts are eligible yet"
                 }
                 icon={Percent}
@@ -196,7 +188,7 @@ export default function DashboardPage() {
                 value={`${data.my_reference.reference_score}%`}
                 hint={
                   data.my_reference.eligible_accounts > 0
-                    ? `${data.my_reference.references_taken} of ${data.my_reference.eligible_accounts} of your own accounts`
+                    ? `${data.my_reference.references_taken} of your ${data.my_reference.eligible_accounts} accounts taken or declined`
                     : "None of your own accounts are eligible yet"
                 }
                 icon={Percent}
@@ -211,19 +203,19 @@ export default function DashboardPage() {
               index={4}
               label="Follow-ups due"
               value={data.references.follow_ups_due}
-              hint="Ask again today"
+              hint="Said “later” — ask again on the date set"
               icon={CalendarClock}
               accent={data.references.follow_ups_due > 0 ? "warning" : "neutral"}
               href="/references?tab=follow-ups"
             />
           </StatSection>
 
-          <StatSection title="Assigned Leads" href="/leads">
+          <StatSection title="Assigned Leads" href="/leads" icon={Target}>
             <StatTile
               index={0}
               label="Open leads"
               value={data.leads.open}
-              hint={`${formatNumber(data.leads.total)} in your scope`}
+              hint="Still being worked"
               icon={Inbox}
               href="/leads?open_only=true"
             />
@@ -239,60 +231,15 @@ export default function DashboardPage() {
               accent={data.leads.follow_ups_due > 0 ? "warning" : "neutral"}
               href="/leads?open_only=true"
             />
-            <StatTile
-              index={2}
-              label="Converted"
-              value={data.leads.converted}
-              hint="Won — ready to ask for feedback"
-              icon={CheckCircle2}
-              accent={data.leads.converted > 0 ? "success" : "neutral"}
-              href="/leads?status=CONVERTED"
-            />
+            {/* No "Converted" tile: the dashboard shows work still to do
+                (agreed 2026-10-13). Won leads are on the Leads page. */}
           </StatSection>
 
-          {/* Always shown, even without rights to the analysis below it: the
-              pending queue is the caller's OWN outstanding asks, and hiding it
-              is what would break the trail from a converted lead. */}
-          <StatSection title="Customer feedback" href="/feedback?tab=pending">
-            <StatTile
-              index={0}
-              label="Feedback pending"
-              value={data.feedback_pending}
-              hint="Converted work nobody has asked about"
-              icon={Send}
-              accent={data.feedback_pending > 0 ? "warning" : "neutral"}
-              href="/feedback?tab=pending"
-            />
-            {data.feedback ? (
-              <>
-                <StatTile
-                  index={1}
-                  label="Average rating"
-                  value={
-                    data.feedback.average_rating === null
-                      ? "—"
-                      : `${data.feedback.average_rating}/${data.feedback.rating_scale_max}`
-                  }
-                  hint={`From ${formatNumber(data.feedback.total_responses)} responses`}
-                  icon={Gauge}
-                  href="/feedback"
-                />
-                <StatTile
-                  index={2}
-                  label="Needs attention"
-                  value={data.feedback.departments_below_threshold}
-                  hint="Departments below threshold"
-                  icon={AlertTriangle}
-                  accent={data.feedback.departments_below_threshold > 0 ? "danger" : "neutral"}
-                  href="/feedback?tab=analysis"
-                />
-              </>
-            ) : null}
-          </StatSection>
+          </div>
 
           {/* ------------------------------------------------- charts */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Card className="stagger" style={{ "--index": 0 } as React.CSSProperties}>
+            <Card data-enter>
               <CardHeader className="block">
                 <CardTitle>Reference status of eligible accounts</CardTitle>
                 <CardDescription>
@@ -322,7 +269,7 @@ export default function DashboardPage() {
               </CardBody>
             </Card>
 
-            <Card className="stagger" style={{ "--index": 1 } as React.CSSProperties}>
+            <Card data-enter>
               <CardHeader className="block">
                 <CardTitle>Lead pipeline</CardTitle>
                 <CardDescription>Open and closed leads by stage.</CardDescription>
@@ -354,7 +301,7 @@ export default function DashboardPage() {
 
             {data.feedback ? (
               <>
-                <Card className="stagger" style={{ "--index": 2 } as React.CSSProperties}>
+                <Card data-enter>
                   <CardHeader className="block">
                     <CardTitle>
                       Department average rating (out of {data.feedback.rating_scale_max})
@@ -380,7 +327,7 @@ export default function DashboardPage() {
                   </CardBody>
                 </Card>
 
-                <Card className="stagger" style={{ "--index": 3 } as React.CSSProperties}>
+                <Card data-enter>
                   <CardHeader>
                     <div>
                       <CardTitle>Feedback responses per month</CardTitle>
@@ -403,7 +350,7 @@ export default function DashboardPage() {
 
           {/* ------------------------------------------ people table */}
           {data.shape !== "PERSONAL" ? (
-            <div className="mt-4">
+            <div className="mt-4" data-enter>
               <ReportsTable
                 reports={data.reports}
                 title={data.shape === "ADMIN" ? "People" : "Your team"}
@@ -415,7 +362,7 @@ export default function DashboardPage() {
               />
             </div>
           ) : null}
-        </>
+        </div>
       )}
 
       <div className="mt-4 flex items-center gap-2 text-[11.5px] text-subtle">

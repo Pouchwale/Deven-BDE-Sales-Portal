@@ -16,6 +16,7 @@ from app.core import authority
 from app.core.authority import ALL, _All
 from app.core.constants import (
     COMPLETED_REFERENCE_OUTCOMES,
+    COMPLETED_REFERENCE_STATUSES,
     AuditAction,
     EntityType,
     ErrorCode,
@@ -354,10 +355,14 @@ def askable_accounts(
     scope: set[uuid.UUID] | _All,
     *,
     reference_status: str | None = None,
+    open_only: bool = False,
     search: str | None = None,
     owner_id: uuid.UUID | None = None,
 ) -> list[dict]:
     """Every won account that can be asked for a reference.
+
+    `open_only`: just the ones still owing an answer - not asked yet, or said
+    "later". Completed asks (gave one, or declined) are left out.
 
     ONE source: converted portal leads whose post-sale record says they were
     invoiced at least ten days ago. Not the SAP customer book - that was a
@@ -378,6 +383,8 @@ def askable_accounts(
     stmt = select(Lead).where(Lead.id.in_(eligible_ids))
     if reference_status:
         stmt = stmt.where(Lead.reference_status == reference_status)
+    elif open_only:
+        stmt = stmt.where(Lead.reference_status.not_in(COMPLETED_REFERENCE_STATUSES))
     if owner_id is not None:
         stmt = stmt.where(Lead.assigned_to_user_id == owner_id)
     if search:
@@ -430,10 +437,14 @@ def follow_ups_due(
     scope: set[uuid.UUID] | _All,
     *,
     on: date | None = None,
-    include_future: bool = False,
     group_by: str = "due_date",
 ) -> list[dict]:
-    """Won accounts whose "ask me later" date has arrived.
+    """Won accounts that said "later" - every one, whatever date was set.
+
+    Agreed 2026-10-03: a customer who asked to be called back is a follow-up
+    from the moment they say so, not only once the date arrives; the date
+    orders the list and `days_overdue` says how late it is. (The daily
+    reminder in services/notifications.py still fires on the date itself.)
 
     Converted leads only, matching `askable_accounts`. A follow-up queue built
     from a different population than the ask queue is how the two end up
@@ -453,9 +464,6 @@ def follow_ups_due(
         stmt = stmt.where(
             Lead.assigned_to_user_id.in_(scope) if scope else Lead.id.in_([])
         )
-    if not include_future:
-        stmt = stmt.where(Lead.next_reference_date <= today)
-
     leads = list(db.execute(stmt.order_by(Lead.next_reference_date)).scalars().all())
     if not leads:
         return []

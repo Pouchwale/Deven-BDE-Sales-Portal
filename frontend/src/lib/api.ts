@@ -511,24 +511,26 @@ export const api = {
      *  would filter only the rows that happened to arrive, which looks like
      *  an answer and is not one. */
     accounts: (
-      params: { reference_status?: string; search?: string; owner_id?: string } = {},
+      params: {
+        reference_status?: string;
+        open_only?: boolean;
+        search?: string;
+        owner_id?: string;
+      } = {},
       signal?: AbortSignal,
     ) =>
       request<AskableAccount[]>("/api/references/accounts", {
         query: {
           reference_status: params.reference_status,
+          open_only: params.open_only,
           search: params.search,
           owner_id: params.owner_id,
         },
         signal,
       }),
-    followUps: (
-      includeFuture = false,
-      groupBy: "due_date" | "owner" = "due_date",
-      signal?: AbortSignal,
-    ) =>
+    followUps: (groupBy: "due_date" | "owner" = "due_date", signal?: AbortSignal) =>
       request<FollowUpDue[]>("/api/references/follow-ups", {
-        query: { include_future: includeFuture, group_by: groupBy },
+        query: { group_by: groupBy },
         signal,
       }),
     record: (body: RecordReferenceBody) =>
@@ -651,7 +653,10 @@ export const api = {
     list: (query?: Query, signal?: AbortSignal) =>
       request<Page<Notification>>("/api/notifications", { query, signal }),
     unreadCount: (signal?: AbortSignal) =>
-      request<{ unread: number }>("/api/notifications/unread-count", { signal }),
+      request<{ unread: number; new: { title: string; body: string | null }[] }>(
+        "/api/notifications/unread-count",
+        { signal },
+      ),
     markRead: (id: string) =>
       request<Message>(`/api/notifications/${id}/read`, { method: "POST" }),
     markAllRead: () => request<Message>("/api/notifications/read-all", { method: "POST" }),

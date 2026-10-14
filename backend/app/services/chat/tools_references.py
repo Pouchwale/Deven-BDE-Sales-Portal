@@ -39,10 +39,6 @@ class ListReferencesParams(BaseModel):
 
 
 class FollowUpsParams(BaseModel):
-    include_future: bool | None = Field(
-        default=None,
-        description="Include follow-ups not yet due. Default is due-now only.",
-    )
     limit: int | None = Field(default=None, ge=1, le=50)
 
 
@@ -89,7 +85,6 @@ def _follow_ups(ctx: ToolContext, params: FollowUpsParams) -> dict:
         ctx.db,
         ctx.actor,
         ctx.scope,
-        include_future=bool(params.include_future),
     )
     limit = ctx.clamp(params.limit)
     items = [p.follow_up_row(row) for row in rows[:limit]]
@@ -138,8 +133,8 @@ register(
     ToolSpec(
         name="list_reference_followups",
         description=(
-            "Accounts that said 'ask me later' and whose date has arrived, "
-            "most overdue first."
+            "Accounts that said 'ask me later' (every one, whatever date "
+            "was set), earliest ask-again date first."
         ),
         params_model=FollowUpsParams,
         handler=_follow_ups,

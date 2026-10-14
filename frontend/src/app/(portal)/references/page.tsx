@@ -56,18 +56,6 @@ const RecordReferenceDialog = dynamic(
  * portal lost nineteen accounts. It did not — they are in one of two
  * explainable states, and saying which one is the whole job of this hint.
  */
-function wonHint(stats: ReferenceStats): string {
-  if (stats.converted_leads === 0) return "Nothing won yet";
-  const parts: string[] = [];
-  if (stats.eligible_accounts > 0) {
-    parts.push(`${formatNumber(stats.eligible_accounts)} ready to ask`);
-  }
-  if (stats.waiting_period > 0) {
-    parts.push(`${formatNumber(stats.waiting_period)} before their reference date`);
-  }
-  return parts.join(" · ");
-}
-
 /* An empty table has three quite different causes. Collapsing them into "no
    accounts" is how "the sheet was never synced" gets read as "we have no
    customers", which is a much worse piece of news than the truth. */
@@ -154,6 +142,9 @@ function ReferencesInner() {
       api.references.accounts(
         {
           reference_status: statusFilter || undefined,
+          // No status picked: only the work still to do (not asked, or
+          // "later"). Completed asks are under Every ask.
+          open_only: statusFilter ? undefined : true,
           search: debounced || undefined,
           owner_id: ownerFilter || undefined,
         },
@@ -178,8 +169,10 @@ function ReferencesInner() {
     [debounced, outcomeFilter, page, nonce],
   );
   const [followUpGroupBy, setFollowUpGroupBy] = useState<"due_date" | "owner">("due_date");
+  // Local YYYY-MM-DD, comparable with the API's dates as plain strings.
+  const today = new Date().toLocaleDateString("en-CA");
   const followUps = useAsync(
-    (signal) => api.references.followUps(false, followUpGroupBy, signal),
+    (signal) => api.references.followUps(followUpGroupBy, signal),
     [nonce, followUpGroupBy],
   );
 
@@ -242,22 +235,19 @@ function ReferencesInner() {
           ))
         ) : (
           <>
-            {/*
-              The whole won book, with the reason only part of it is
-              actionable said on the tile. These always add up:
-
-                  eligible + waiting + awaiting sync === converted
-
-              so a small eligible number below is explained rather than
-              looking like the portal lost the other twenty.
-            */}
+            {/* Only accounts that can be asked today (agreed 2026-10-13):
+                won accounts still inside their waiting period are left out,
+                and appear here on their reference date. */}
             <StatTile
               index={0}
-              label="Converted leads"
-              value={stats.data.converted_leads}
-              hint={wonHint(stats.data)}
+              label="Ready to ask"
+              value={stats.data.not_asked + stats.data.references_pending}
+              hint={
+                stats.data.eligible_accounts > 0
+                  ? `${formatNumber(stats.data.not_asked)} not asked · ${formatNumber(stats.data.references_pending)} later`
+                  : "None ready to ask yet"
+              }
               icon={Users}
-              href="/leads?status=CONVERTED"
             />
             {/* Completed over eligible, with references actually received
                 underneath. The module and the dashboard read the same two
@@ -293,7 +283,7 @@ function ReferencesInner() {
                 value={`${stats.data.reference_score}%`}
                 hint={
                   stats.data.eligible_accounts > 0
-                    ? `${stats.data.references_taken} of ${stats.data.eligible_accounts} gave one · ${stats.data.reference_rate}% taken`
+                    ? `${stats.data.requests_completed} of ${stats.data.eligible_accounts} taken or declined`
                     : "No accounts are eligible yet"
                 }
                 icon={Percent}
@@ -310,7 +300,7 @@ function ReferencesInner() {
               index={showScore ? 4 : 3}
               label="Follow-ups due"
               value={stats.data.follow_ups_due}
-              hint="Ask again today"
+              hint="Said “later” — ask again on the date set"
               icon={CalendarClock}
               accent={stats.data.follow_ups_due > 0 ? "warning" : "neutral"}
             />
@@ -325,11 +315,13 @@ function ReferencesInner() {
         tabs={[
           {
             key: "customers",
-            // Counts the accounts the tab actually LISTS — the eligible ones,
-            // not every won lead. A tab badge that disagrees with the table
-            // under it is the same disease this whole module just had.
+            // Counts what the tab LISTS by default: accounts still owing an
+            // answer (not asked + "later"), never the completed ones.
             label: "Ready to ask",
-            count: stats.data === null ? undefined : stats.data?.eligible_accounts,
+            count:
+              stats.data == null
+                ? undefined
+                : stats.data.not_asked + stats.data.references_pending,
           },
           {
             key: "referred",
@@ -364,7 +356,7 @@ function ReferencesInner() {
                 key: "status",
                 label: "Reference",
                 value: statusFilter,
-                anyLabel: "Any status",
+                anyLabel: "Still to do",
                 options: Object.entries(REFERENCE_STATUS_LABELS).map(([value, label]) => ({
                   value,
                   label,
@@ -701,8 +693,8 @@ function ReferencesInner() {
                 // why it is not folded in with "not right now".
                 options: [
                   { value: "YES", label: "Gave a reference" },
-                  { value: "NO", label: "Not right now" },
-                  { value: "NOT_SHARED", label: "None to give" },
+                  { value: "NO", label: "Later" },
+                  { value: "NOT_SHARED", label: "Declined" },
                 ],
                 onChange: (value) => setParam("outcome", value),
               },
@@ -758,14 +750,22 @@ function ReferencesInner() {
                           </span>
                         </TD>
                         <TD>
+                          {/* Three answers, three labels: a declined ask used
+                              to show as "Later" too. */}
                           <Badge
                             className={
                               reference.outcome === "YES"
                                 ? "border-transparent bg-success-soft text-success"
-                                : "border-transparent bg-warning-soft text-warning"
+                                : reference.outcome === "NO"
+                                  ? "border-transparent bg-warning-soft text-warning"
+                                  : "border-line bg-surface-2 text-muted"
                             }
                           >
-                            {reference.outcome === "YES" ? "Gave a reference" : "Later"}
+                            {reference.outcome === "YES"
+                              ? "Gave a reference"
+                              : reference.outcome === "NO"
+                                ? "Later"
+                                : "Declined"}
                           </Badge>
                         </TD>
                         <TD>
@@ -830,8 +830,8 @@ function ReferencesInner() {
           ) : followUps.data && followUps.data.length === 0 ? (
             <EmptyState
               icon={CalendarClock}
-              title="Nothing due"
-              description="When a customer says “ask me later”, the date you set brings them back here."
+              title="No follow-ups"
+              description="When a customer says “later”, they appear here with the date you set."
             />
           ) : followUps.data ? (
             <TableWrap>
@@ -903,7 +903,9 @@ function ReferencesInner() {
                                 {row.days_overdue === 1 ? "" : "s"} overdue
                               </Badge>
                             ) : (
-                              <span className="text-[11.5px] text-subtle">Due today</span>
+                              <span className="text-[11.5px] text-subtle">
+                                {row.next_reference_date > today ? "Upcoming" : "Due today"}
+                              </span>
                             )}
                           </TD>
                           <TD align="right">

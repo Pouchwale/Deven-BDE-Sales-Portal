@@ -10,8 +10,14 @@ import {
   useState,
 } from "react";
 
-import { ApiError, api, errorMessage, streamChat } from "@/lib/api";
+import { api, streamChat } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import {
+  type ChatFailure,
+  STREAM_CUT,
+  failureFromError,
+  failureFromEvent,
+} from "@/lib/chatErrors";
 import type {
   ChatSetup,
   ChatStatus,
@@ -34,7 +40,7 @@ export interface Turn {
   /** Things worth acting on that the lookups turned up. Ephemeral: they are
    *  not persisted, so a reopened conversation shows prose only. */
   cards?: ResultCard[];
-  error?: string | null;
+  error?: ChatFailure | null;
 }
 
 interface ChatContextValue {
@@ -58,7 +64,9 @@ interface ChatContextValue {
   busy: boolean;
   conversationId: string | null;
   history: Conversation[];
-  send: (message: string) => void;
+  send: (message: string, options?: { fresh?: boolean }) => void;
+  /** Ask the failed question again, in place of the failed answer. */
+  retry: (replyId: string) => void;
   stop: () => void;
   reset: () => void;
   load: (id: string) => Promise<void>;
@@ -208,9 +216,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const send = useCallback(
-    (message: string) => {
+    (message: string, options?: { fresh?: boolean }) => {
       const text = message.trim();
       if (!text || busy) return;
+      // A retry after the server lost the conversation must not name it again.
+      const sendTo = options?.fresh ? null : conversationId;
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -232,9 +242,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const used: { name: string; label: string }[] = [];
         const cards: ResultCard[] = [];
         let text_ = "";
+        let finished = false;
 
         try {
-          for await (const event of streamChat(text, conversationId, controller.signal)) {
+          for await (const event of streamChat(text, sendTo, controller.signal)) {
             switch (event.type) {
               case "start":
                 // Deliberately NOT adopted here. A turn that fails is rolled
@@ -255,25 +266,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 patch({ cards: [...cards] });
                 break;
               case "error":
-                patch({ pending: false, activity: null, error: event.message });
+                finished = true;
+                patch({
+                  pending: false,
+                  activity: null,
+                  error: failureFromEvent(event.code, event.message),
+                });
                 break;
               case "done":
+                finished = true;
                 setConversationId(event.conversation_id);
                 patch({ pending: false, activity: null, content: text_ });
                 void refreshHistory();
                 break;
             }
           }
+          // The body ended without `done` or `error`: a proxy or the network
+          // cut it. Without this the turn would say "thinking" forever.
+          if (!finished && !controller.signal.aborted) {
+            patch({ pending: false, activity: null, error: STREAM_CUT });
+          }
         } catch (error) {
           if (error instanceof DOMException && error.name === "AbortError") return;
-          patch({
-            pending: false,
-            activity: null,
-            error:
-              error instanceof ApiError && error.status === 429
-                ? error.message
-                : errorMessage(error),
-          });
+          patch({ pending: false, activity: null, error: failureFromError(error) });
         } finally {
           if (abortRef.current === controller) {
             abortRef.current = null;
@@ -283,6 +298,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       })();
     },
     [busy, conversationId, refreshHistory],
+  );
+
+  const retry = useCallback(
+    (replyId: string) => {
+      if (busy) return;
+      const index = turns.findIndex((turn) => turn.id === replyId);
+      const question = index > 0 ? turns[index - 1] : null;
+      const failed = turns[index];
+      if (!question || question.role !== "USER" || !failed?.error) return;
+
+      const fresh = Boolean(failed.error.conversationGone);
+      if (fresh) setConversationId(null);
+      // Drop the failed pair; `send` appends the question again with a new
+      // answer slot, so the transcript reads as if it worked first time.
+      setTurns((current) =>
+        current.filter((turn) => turn.id !== replyId && turn.id !== question.id),
+      );
+      send(question.content, { fresh });
+    },
+    [busy, turns, send],
   );
 
   const reset = useCallback(() => {
@@ -344,6 +379,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       conversationId,
       history,
       send,
+      retry,
       stop,
       reset,
       load,
@@ -360,6 +396,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       conversationId,
       history,
       send,
+      retry,
       stop,
       reset,
       load,

@@ -162,6 +162,9 @@
      side - a sheet, not a drawer. */
   --animate-slide-in-up: slide-in-up 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
   --animate-slide-out-down: slide-out-down 0.2s cubic-bezier(0.4, 0, 1, 1) both;
+  /* The phone navigation sheet, from the edge it lives on. */
+  --animate-slide-in-left: slide-in-left 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-slide-out-left: slide-out-left 0.18s cubic-bezier(0.4, 0, 1, 1) both;
 }
 
 @keyframes fade-up {
@@ -204,6 +207,14 @@
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateY(1.5rem); }
 }
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+@keyframes slide-out-left {
+  from { transform: none; }
+  to { transform: translateX(-100%); }
+}
 @keyframes typing {
   0%, 100% { transform: scaleY(0.4); opacity: 0.55; }
   50% { transform: scaleY(1); opacity: 1; }
@@ -222,61 +233,68 @@
    Base
    ========================================================================== */
 
-* {
-  border-color: var(--line);
-}
+/* In the base layer, NOT unlayered. Tailwind's utilities live in a cascade
+   layer, and any unlayered rule beats every layered one regardless of
+   specificity - so an unlayered `* { border-color }` silently turned every
+   `border-danger`, `border-warning/30` and `focus-within:border-brand-400`
+   in the portal grey, and no utility could ever remove the focus outline. */
+@layer base {
+  * {
+    border-color: var(--line);
+  }
 
-html {
-  -webkit-text-size-adjust: 100%;
-}
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
 
-body {
-  background-color: var(--bg);
-  color: var(--text);
-  font-family: var(--font-sans);
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  min-height: 100dvh;
-}
+  body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100dvh;
+  }
 
-::selection {
-  background-color: var(--brand-200);
-  color: var(--brand-950);
-}
-.dark ::selection {
-  background-color: var(--brand-800);
-  color: var(--brand-50);
-}
+  ::selection {
+    background-color: var(--brand-200);
+    color: var(--brand-950);
+  }
+  .dark ::selection {
+    background-color: var(--brand-800);
+    color: var(--brand-50);
+  }
 
-/* A visible focus ring for keyboard users, and only for them. */
-:focus-visible {
-  outline: 2px solid var(--brand-500);
-  outline-offset: 2px;
-  border-radius: 0.375rem;
-}
+  /* A visible focus ring for keyboard users, and only for them. */
+  :focus-visible {
+    outline: 2px solid var(--brand-500);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
 
-/* Thin, theme-aware scrollbars. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
-}
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background-color: var(--line-strong);
-  border-radius: 9999px;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-subtle);
-  background-clip: content-box;
+  /* Thin, theme-aware scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-subtle);
+    background-clip: content-box;
+  }
 }
 
 /* Respect a user who has asked for less motion. */
@@ -384,8 +402,15 @@ body {
       gap: 0.625rem;
     }
 
+    /* Two columns of label-over-value pairs: a nine-column row reads as a
+       compact card instead of nine full-width lines, which on a 22-person
+       table was the difference between one screen per person and five
+       people per screen. */
     & tbody tr {
-      display: block;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 1rem;
+      row-gap: 0.5rem;
       border: 1px solid var(--line);
       border-radius: var(--radius);
       background: var(--surface);
@@ -394,19 +419,18 @@ body {
 
     & tbody td {
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      width: 100%;
-      padding: 0.1875rem 0;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.125rem;
+      min-width: 0;
+      padding: 0;
       border: 0;
       text-align: left;
     }
 
-    /* The header, re-emitted beside its value. */
+    /* The header, re-emitted above its value. */
     & tbody td[data-label]::before {
       content: attr(data-label);
-      flex: none;
       font-size: 11px;
       font-weight: 600;
       letter-spacing: 0.04em;
@@ -414,11 +438,12 @@ body {
       color: var(--text-subtle);
     }
 
-    /* Cells that are their own headline: the name, the actions. They take
-       the full width rather than sitting in a label/value pair. */
-    & tbody td:not([data-label]) {
+    /* Cells that are their own headline: the name, the actions, a lone
+       message row. They take the full width of the card. */
+    & tbody td:not([data-label]),
+    & tbody td[colspan] {
+      grid-column: 1 / -1;
       display: block;
-      padding-block: 0.25rem;
     }
 
     /* Actions go full width and thumb-sized, at the foot of the card. */
@@ -430,6 +455,13 @@ body {
     & tbody td[data-actions] > * {
       width: 100%;
       justify-content: center;
+    }
+    /* The buttons themselves share the row and are thumb-height, rather than
+       sitting small in the middle of it. */
+    & tbody td[data-actions] :is(button, a) {
+      flex: 1 1 0;
+      justify-content: center;
+      min-height: 2.75rem;
     }
   }
 }

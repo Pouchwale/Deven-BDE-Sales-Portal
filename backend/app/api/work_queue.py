@@ -3,8 +3,8 @@
 One endpoint, two genuinely different kinds of work (plan v3 s7):
 
   * ASSIGNED_BY_HEAD    — leads a manager handed you.
-  * REFERENCE_FOLLOWUP  — a converted customer said "ask me later" and the
-                          date has arrived.
+  * REFERENCE_FOLLOWUP  — a converted customer said "ask me later"
+                          (whatever date was set).
 
 The follow-ups are sourced from `customers`, not `leads`. They stay in the
 reference module and are surfaced here as work items, so they never inflate

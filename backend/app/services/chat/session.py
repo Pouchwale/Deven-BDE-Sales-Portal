@@ -111,6 +111,7 @@ def answer(
     answer_text = ""
     usage_in = 0
     usage_out = 0
+    answered_by = settings.GROQ_MODEL
     invocations: list[tuple[str, dict, dict]] = []
 
     try:
@@ -132,6 +133,7 @@ def answer(
                 yield Event("delta", {"text": text})
 
             reply = turn.reply
+            answered_by = turn.model
             usage_in += reply.input_tokens
             usage_out += reply.output_tokens
 
@@ -225,7 +227,7 @@ def answer(
     logger.info(
         "Chat turn for user %s on %s: in=%d out=%d tools=%d",
         actor.id,
-        settings.GROQ_MODEL,
+        answered_by,
         usage_in,
         usage_out,
         len(invocations),

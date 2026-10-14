@@ -340,9 +340,10 @@ def report_rows(
         .where(
             Lead.assigned_to_user_id.in_(ids),
             Lead.status == LeadStatus.CONVERTED,
+            # Every "later", whatever date was set - the same rule as
+            # references.follow_ups_due, which the person's own view uses.
             Lead.reference_status == ReferenceStatus.PENDING,
             Lead.next_reference_date.is_not(None),
-            Lead.next_reference_date <= today,
         )
         .group_by(Lead.assigned_to_user_id)
     )

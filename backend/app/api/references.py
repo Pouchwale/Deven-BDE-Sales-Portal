@@ -47,13 +47,12 @@ def follow_ups(
     actor: CurrentUser,
     db: DbSession,
     scope: VisibilityScope,
-    include_future: bool = Query(default=False),
     group_by: str = Query(default="due_date", pattern="^(due_date|owner)$"),
     limit: int = Query(default=MAX_LIST_ITEMS, ge=1, le=MAX_LIST_ITEMS),
 ) -> list[FollowUpDue]:
     """The reference follow-up bucket of the work queue."""
     rows = reference_service.follow_ups_due(
-        db, actor, scope, include_future=include_future, group_by=group_by
+        db, actor, scope, group_by=group_by
     )
     return [FollowUpDue(**row) for row in rows[:limit]]
 
@@ -69,6 +68,7 @@ def askable_accounts(
     db: DbSession,
     scope: VisibilityScope,
     reference_status: ReferenceStatus | None = Query(default=None),
+    open_only: bool = Query(default=False),
     search: str | None = Query(default=None, max_length=120),
     owner_id: uuid.UUID | None = Query(default=None),
     limit: int = Query(default=MAX_ASKABLE_ACCOUNTS, ge=1, le=MAX_ASKABLE_ACCOUNTS),
@@ -85,6 +85,7 @@ def askable_accounts(
         actor,
         scope,
         reference_status=str(reference_status) if reference_status else None,
+        open_only=open_only,
         search=search,
         owner_id=owner_id,
     )

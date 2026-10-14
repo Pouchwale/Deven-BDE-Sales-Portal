@@ -7,7 +7,9 @@ import typescript from "eslint-config-next/typescript";
 const config = [
   ...coreWebVitals,
   ...typescript,
-  { ignores: [".next/**", "node_modules/**", "tests/e2e/**", "next-env.d.ts"] },
+  // out-static/ is the static export (PORTAL_STATIC_EXPORT=1): minified build
+  // output, not source.
+  { ignores: [".next/**", "out-static/**", "node_modules/**", "tests/e2e/**", "next-env.d.ts"] },
 ];
 
 export default config;

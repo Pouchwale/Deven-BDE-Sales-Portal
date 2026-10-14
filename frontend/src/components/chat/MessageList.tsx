@@ -10,10 +10,12 @@ export function MessageList({
   turns,
   role,
   onNavigate,
+  onRetry,
 }: {
   turns: Turn[];
   role: Role;
   onNavigate?: () => void;
+  onRetry?: (replyId: string) => void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -35,9 +37,23 @@ export function MessageList({
   }, [tick]);
 
   return (
-    <div ref={containerRef} className="flex-1 space-y-3.5 overflow-y-auto px-4 py-4">
+    <div
+      ref={containerRef}
+      // The transcript is a log: new answers are announced as they finish,
+      // without stealing focus from the composer.
+      role="log"
+      aria-live="polite"
+      aria-relevant="additions"
+      className="flex-1 space-y-4 overflow-y-auto overscroll-contain px-4 py-4"
+    >
       {turns.map((turn) => (
-        <MessageBubble key={turn.id} turn={turn} role={role} onNavigate={onNavigate} />
+        <MessageBubble
+          key={turn.id}
+          turn={turn}
+          role={role}
+          onNavigate={onNavigate}
+          onRetry={onRetry}
+        />
       ))}
       <div ref={endRef} />
     </div>

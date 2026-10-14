@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { api } from "@/lib/api";
+import { useToast } from "@/lib/toast";
 import { pollWhileVisible } from "@/lib/visiblePoll";
 
 interface NotificationsContextValue {
@@ -29,6 +30,7 @@ const POLL_MS = 60_000;
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const [unread, setUnread] = useState(0);
   const [nonce, setNonce] = useState(0);
+  const toast = useToast();
 
   useEffect(() => {
     let active = true;
@@ -38,8 +40,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       try {
         // This endpoint also tops up the lazily generated reference
         // follow-up reminders, which is why polling it matters.
-        const { unread: count } = await api.notifications.unreadCount(controller.signal);
-        if (active) setUnread(count);
+        const { unread: count, new: reminders } = await api.notifications.unreadCount(
+          controller.signal,
+        );
+        if (!active) return;
+        setUnread(count);
+        // Reminders the server created on THIS poll - a "later" date has
+        // arrived. Each is created once, so each pops up once.
+        for (const reminder of reminders ?? []) {
+          toast.info(reminder.title, reminder.body ?? undefined);
+        }
       } catch {
         /* a failed poll is not worth surfacing; the next one will do */
       }
@@ -54,7 +64,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       controller.abort();
       stopPolling();
     };
-  }, [nonce]);
+  }, [nonce, toast]);
 
   const refresh = useCallback(() => setNonce((value) => value + 1), []);
   // Memoised like every other provider in the app: this one is mounted around

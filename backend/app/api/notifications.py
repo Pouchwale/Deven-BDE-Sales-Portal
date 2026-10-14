@@ -24,8 +24,16 @@ class NotificationOut(ORMModel):
     created_at: object  # datetime, kept loose so the ORM value passes straight through
 
 
+class NewReminder(BaseModel):
+    title: str
+    body: str | None = None
+
+
 class UnreadCount(BaseModel):
     unread: int
+    #: Reminders created by THIS poll. The dedupe key makes each one exist
+    #: once, so the page pops each one up exactly once.
+    new: list[NewReminder] = []
 
 
 @router.get("/unread-count", response_model=UnreadCount)
@@ -39,7 +47,10 @@ def unread_count(user: CurrentUser, db: DbSession) -> UnreadCount:
     created = notification_service.ensure_followup_notifications(db, user)
     if created:
         db.commit()
-    return UnreadCount(unread=notification_service.unread_count(db, user))
+    return UnreadCount(
+        unread=notification_service.unread_count(db, user),
+        new=[NewReminder(title=n.title, body=n.body) for n in created],
+    )
 
 
 @router.get("", response_model=Page[NotificationOut])

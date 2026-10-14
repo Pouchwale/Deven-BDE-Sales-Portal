@@ -187,10 +187,17 @@ class Settings(BaseSettings):
     # actually reads.
     GROQ_API_KEY: str = ""
     CHAT_ENABLED: bool = False
-    # Production model, 131k context, and one of the models that supports
-    # PARALLEL tool calling - which the loop in services/chat/session.py
-    # relies on when a question needs two lookups at once.
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # Must support tool calling, ideally PARALLEL tool calling - the loop in
+    # services/chat/session.py relies on it when a question needs two lookups
+    # at once. (llama-3.3-70b-versatile, the old default, is no longer offered
+    # to free accounts: a missing model reads as "not configured correctly".)
+    GROQ_MODEL: str = "openai/gpt-oss-120b"
+    # Tried in order when GROQ_MODEL is rate-limited or unavailable. Groq's
+    # free tier allows ~8,000 tokens a minute PER MODEL, and one tool-using
+    # question costs 2-3 calls of ~3,000 tokens each - so a single model runs
+    # dry within a question or two. Each fallback brings its own allowance.
+    # Comma-separated; blank disables the fallback.
+    GROQ_FALLBACK_MODELS: str = "openai/gpt-oss-120b,openai/gpt-oss-20b,qwen/qwen3.8-27b"
     # An assistant that reports figures should not be inventive. Low, not
     # zero: zero makes it repeat a phrasing verbatim across turns.
     CHAT_TEMPERATURE: float = 0.2
@@ -406,6 +413,16 @@ class Settings(BaseSettings):
         this decides whether the composer appears.
         """
         return self.CHAT_ENABLED and bool(self.GROQ_API_KEY.strip())
+
+    @property
+    def chat_models(self) -> list[str]:
+        """GROQ_MODEL first, then each distinct fallback."""
+        models: list[str] = []
+        for name in [self.GROQ_MODEL, *self.GROQ_FALLBACK_MODELS.split(",")]:
+            name = name.strip()
+            if name and name not in models:
+                models.append(name)
+        return models
 
     @cached_property
     def feedback_sync_enabled(self) -> bool:

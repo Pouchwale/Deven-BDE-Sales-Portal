@@ -44,6 +44,7 @@ export function ChatComposer({
         className={cn(
           "flex items-end gap-2 rounded-2xl border border-line bg-surface-2 px-3 py-2",
           "transition-colors focus-within:border-brand-400 focus-within:bg-surface",
+          "focus-within:ring-3 focus-within:ring-brand-500/15",
         )}
       >
         <textarea
@@ -64,7 +65,9 @@ export function ChatComposer({
           aria-label="Message the assistant"
           className={cn(
             "max-h-33 flex-1 resize-none bg-transparent text-[13.5px] leading-relaxed",
-            "text-content outline-none placeholder:text-subtle",
+            // The rounded field around it shows focus; a second ring inside
+            // it would just be noise.
+            "text-content outline-none placeholder:text-subtle focus-visible:outline-none",
           )}
         />
 
@@ -74,7 +77,7 @@ export function ChatComposer({
             onClick={onStop}
             aria-label="Stop"
             className={cn(
-              "grid size-7 shrink-0 place-items-center rounded-full bg-surface-hover",
+              "grid size-8 shrink-0 place-items-center rounded-full bg-surface-hover",
               "text-muted transition-colors hover:text-content active:scale-95",
             )}
           >
@@ -87,7 +90,7 @@ export function ChatComposer({
             disabled={!value.trim()}
             aria-label="Send"
             className={cn(
-              "grid size-7 shrink-0 place-items-center rounded-full bg-brand-600 text-white",
+              "grid size-8 shrink-0 place-items-center rounded-full bg-brand-600 text-white",
               "transition-[background-color,transform,opacity] hover:bg-brand-700",
               "active:scale-95 disabled:pointer-events-none disabled:opacity-35",
             )}

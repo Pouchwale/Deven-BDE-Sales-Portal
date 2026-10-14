@@ -71,7 +71,7 @@ export function DashboardGreeting({
           <p className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-brand-600 dark:text-brand-300">
             {today}
           </p>
-          <h1 className="mt-1 text-[24px] font-semibold leading-tight tracking-[-0.015em] text-content sm:text-[28px]">
+          <h1 className="mt-1 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-content sm:text-[26px]">
             {hello}
           </h1>
           <p className="mt-1.5 max-w-xl border-l-2 border-brand-200 pl-3 text-[13.5px] italic leading-relaxed text-muted dark:border-brand-900">
@@ -80,7 +80,9 @@ export function DashboardGreeting({
         </div>
 
         {data ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          // Not shrink-0: on a phone the two badges must wrap onto their own
+          // lines rather than run out of the card.
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
             <Badge className="border-line bg-surface-2 text-subtle">
               {SCOPE[data.shape]}
             </Badge>

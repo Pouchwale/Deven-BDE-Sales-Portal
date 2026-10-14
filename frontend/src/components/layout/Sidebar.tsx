@@ -14,12 +14,14 @@ import {
   Target,
   UserRound,
   Users,
-  X,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 
 import { BrandLogo } from "@/components/layout/BrandLogo";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/primitives/tooltip";
 import { cn } from "@/lib/cn";
 import { canBrowseCustomers, isAdmin, isLeadership } from "@/lib/roles";
 import type { Role } from "@/types/api";
@@ -113,6 +115,17 @@ function navigation(role: Role, unread: number): { section: string; items: NavIt
   ];
 }
 
+/**
+ * The phone navigation sheet (Radix Dialog) is only ever needed after somebody
+ * taps the menu button below lg, so it is fetched then - not shipped in the
+ * shared bundle every desktop page load pays for. The Topbar prefetches it on
+ * the first touch or hover of that button, so the tap itself does not wait.
+ */
+export const preloadMobileNav = () => import("@/components/layout/MobileNav");
+const MobileNav = dynamic(() => preloadMobileNav().then((module) => module.MobileNav), {
+  ssr: false,
+});
+
 export function Sidebar({
   role,
   unread = 0,
@@ -123,12 +136,74 @@ export function Sidebar({
 }: {
   role: Role;
   unread?: number;
-  /** The overlay drawer, below lg. */
+  /** The navigation sheet, below lg. */
   open: boolean;
   /** At lg and above: the slim icon rail instead of the full panel. */
   collapsed?: boolean;
   onClose: () => void;
   onToggleCollapsed?: () => void;
+}) {
+  // Mounted on first open and kept, so it can play its own exit animation.
+  const [everOpened, setEverOpened] = useState(open);
+  if (open && !everOpened) setEverOpened(true);
+
+  return (
+    <>
+      {/* lg and up: a permanent panel, full or as an icon rail. */}
+      <aside
+        id="portal-nav"
+        aria-label="Main navigation"
+        className={cn(
+          "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface lg:flex",
+          "transition-[width] duration-250 ease-out",
+          collapsed ? "w-[76px]" : "w-64",
+        )}
+      >
+        <NavContent role={role} unread={unread} collapsed={collapsed} />
+
+        {onToggleCollapsed ? (
+          <div className={cn("shrink-0 border-t border-line p-3", collapsed && "px-2.5")}>
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+              aria-expanded={!collapsed}
+              className={cn(
+                "flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] text-subtle",
+                "transition-colors hover:bg-surface-hover hover:text-content",
+                collapsed && "justify-center px-0",
+              )}
+            >
+              {collapsed ? (
+                <ChevronRight className="size-4" aria-hidden />
+              ) : (
+                <>
+                  <ChevronLeft className="size-4" aria-hidden />
+                  Collapse
+                </>
+              )}
+            </button>
+          </div>
+        ) : null}
+      </aside>
+
+      {everOpened ? (
+        <MobileNav role={role} unread={unread} open={open} onClose={onClose} />
+      ) : null}
+    </>
+  );
+}
+
+export function NavContent({
+  role,
+  unread,
+  collapsed = false,
+  onNavigate,
+}: {
+  role: Role;
+  unread: number;
+  collapsed?: boolean;
+  onNavigate?: () => void;
 }) {
   const pathname = usePathname();
   const groups = navigation(role, unread)
@@ -137,149 +212,132 @@ export function Sidebar({
 
   return (
     <>
-      <div
-        aria-hidden
-        onClick={onClose}
-        className={cn(
-          "fixed inset-0 z-30 bg-black/40 backdrop-blur-[1px] transition-opacity duration-200 lg:hidden",
-          open ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      />
-
-      <aside
-        id="portal-nav"
-        aria-label="Main navigation"
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-64 flex-col border-r border-line bg-surface",
-          "transition-[transform,width] duration-250 ease-out",
-          // Below lg: the overlay drawer, always full width.
-          open ? "translate-x-0" : "-translate-x-full",
-          // lg and above: always on screen, as the full panel or the icon rail.
-          "lg:translate-x-0",
-          collapsed ? "lg:w-[76px]" : "lg:w-64",
-        )}
-      >
-        {/* ------------------------------------------------------ brand */}
-        <div
-          className={cn(
-            "flex h-[72px] shrink-0 items-center gap-3 px-4",
-            collapsed && "lg:justify-center lg:px-0",
-          )}
+      {/* ------------------------------------------------------ brand */}
+      <div className={cn("flex h-16 shrink-0 items-center px-4", collapsed && "justify-center px-0")}>
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          className="flex min-w-0 items-center gap-3"
+          aria-label="BDE & Sales Portal - dashboard"
         >
-          <Link
-            href="/dashboard"
-            onClick={onClose}
-            className={cn("flex min-w-0 flex-1 items-center gap-3", collapsed && "lg:flex-none")}
-            aria-label="BDE & Sales Portal - dashboard"
-          >
-            <BrandLogo size={40} />
-            <span className={cn("min-w-0", collapsed && "lg:hidden")}>
-              <span className="block truncate text-[15px] font-semibold leading-tight text-content">
+          <BrandLogo size={34} />
+          {collapsed ? null : (
+            <span className="min-w-0">
+              <span className="block truncate text-[14px] font-semibold leading-tight text-content">
                 BDE &amp; Sales Portal
               </span>
               <span className="block truncate text-[11.5px] leading-tight text-subtle">
                 Pouchwale
               </span>
             </span>
-          </Link>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close navigation"
-            className="-mr-1.5 grid size-11 shrink-0 place-items-center rounded-lg text-subtle transition-colors hover:bg-surface-hover hover:text-content lg:hidden"
-          >
-            <X className="size-4" aria-hidden />
-          </button>
-        </div>
-
-        {/* ------------------------------------------------------- links */}
-        <nav
-          className={cn(
-            "flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 pt-2",
-            collapsed && "lg:px-2.5",
           )}
-        >
-          {groups.map((group, index) => (
-            <ul
-              key={group.section}
-              aria-label={group.section}
-              className={cn(
-                "space-y-1",
-                // A hairline between groups rather than headings keeps the
-                // list clean, and still works in the icon-only rail.
-                index > 0 && "mt-2 border-t border-line/70 pt-2",
-              )}
-            >
-              {group.items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                const Icon = item.icon;
+        </Link>
+      </div>
 
-                return (
+      {/* ------------------------------------------------------- links */}
+      <nav
+        aria-label="Main"
+        className={cn("flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4", collapsed && "px-2.5")}
+      >
+        {groups.map((group, index) => {
+          // A label names the group when there is room to read it; the icon
+          // rail keeps a hairline instead. "Overview" and "Account" are one
+          // link each and a label would add nothing.
+          const labelled = !collapsed && group.items.length > 1;
+          return (
+            <div key={group.section} className={cn(index > 0 && "mt-4")}>
+              {labelled ? (
+                <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle">
+                  {group.section}
+                </p>
+              ) : index > 0 && collapsed ? (
+                <div className="mx-2 mb-3 border-t border-line" aria-hidden />
+              ) : null}
+              <ul aria-label={group.section} className="flex flex-col gap-0.5">
+                {group.items.map((item) => (
                   <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={onClose}
-                      aria-current={active ? "page" : undefined}
-                      aria-label={collapsed ? item.label : undefined}
-                      title={collapsed ? item.label : undefined}
-                      className={cn(
-                        "group relative flex h-11 items-center gap-3 rounded-xl px-3.5 text-[14.5px] font-medium",
-                        "transition-[background-color,box-shadow,color] duration-150",
-                        collapsed && "lg:justify-center lg:px-0",
-                        active
-                          ? "bg-brand-600/10 text-brand-700 ring-1 ring-inset ring-brand-600/25 dark:bg-brand-400/12 dark:text-brand-200 dark:ring-brand-400/25"
-                          : "text-muted hover:bg-surface-hover hover:text-content",
-                      )}
-                    >
-                      <Icon
-                        className={cn(
-                          "size-[19px] shrink-0 transition-transform duration-150",
-                          !active && "group-hover:scale-110",
-                        )}
-                      />
-                      <span className={cn("flex-1 truncate", collapsed && "lg:hidden")}>
-                        {item.label}
-                      </span>
-                      {item.badge ? (
-                        <span
-                          className={cn(
-                            "animate-pop inline-flex min-w-4.5 items-center justify-center rounded-full bg-danger px-1.5 text-[10.5px] font-semibold text-white tabular-nums",
-                            collapsed && "lg:absolute lg:right-1.5 lg:top-1 lg:min-w-4 lg:px-1",
-                          )}
-                          aria-label={`${item.badge} unread`}
-                        >
-                          {item.badge > 99 ? "99+" : item.badge}
-                        </span>
-                      ) : null}
-                    </Link>
+                    <NavLink
+                      item={item}
+                      active={pathname === item.href || pathname.startsWith(`${item.href}/`)}
+                      collapsed={collapsed}
+                      onNavigate={onNavigate}
+                    />
                   </li>
-                );
-              })}
-            </ul>
-          ))}
-        </nav>
-
-        {/* --------------------------------------------- collapse toggle */}
-        {onToggleCollapsed ? (
-          <div className="hidden shrink-0 border-t border-line p-3 lg:block">
-            <button
-              type="button"
-              onClick={onToggleCollapsed}
-              aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-              aria-expanded={!collapsed}
-              aria-controls="portal-nav"
-              title={collapsed ? "Expand navigation" : "Collapse navigation"}
-              className="grid h-10 w-full place-items-center rounded-full border border-line text-muted transition-colors hover:bg-surface-hover hover:text-content"
-            >
-              {collapsed ? (
-                <ChevronRight className="size-4" aria-hidden />
-              ) : (
-                <ChevronLeft className="size-4" aria-hidden />
-              )}
-            </button>
-          </div>
-        ) : null}
-      </aside>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </nav>
     </>
+  );
+}
+
+function NavLink({
+  item,
+  active,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  const Icon = item.icon;
+  const link = (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      aria-label={collapsed ? item.label : undefined}
+      className={cn(
+        // 44px tall in the phone sheet (a thumb target), 38px on desktop.
+        "group relative flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] lg:h-[38px]",
+        "transition-colors duration-150",
+        collapsed && "justify-center px-0",
+        active
+          ? "bg-brand-600/8 font-semibold text-brand-700 dark:bg-brand-400/12 dark:text-brand-200"
+          : "font-medium text-muted hover:bg-surface-hover hover:text-content",
+      )}
+    >
+      {/* The active marker: a short bar on the leading edge, so the current
+          page is not signalled by colour alone. */}
+      {active ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-600 dark:bg-brand-400",
+            collapsed ? "-left-2.5" : "-left-3",
+          )}
+        />
+      ) : null}
+      <Icon
+        className={cn("size-[18px] shrink-0", !active && "text-subtle group-hover:text-content")}
+      />
+      {collapsed ? null : <span className="flex-1 truncate">{item.label}</span>}
+      {item.badge ? (
+        <span
+          className={cn(
+            "animate-pop inline-flex min-w-5 items-center justify-center rounded-full bg-danger px-1.5 text-[10.5px] font-semibold leading-5 text-white tabular-nums",
+            collapsed && "absolute right-1 top-0.5 min-w-4 px-1 leading-4",
+          )}
+          aria-label={`${item.badge} unread`}
+        >
+          {item.badge > 99 ? "99+" : item.badge}
+        </span>
+      ) : null}
+    </Link>
+  );
+
+  if (!collapsed) return link;
+
+  // The icon rail names each link on hover AND on keyboard focus - `title`
+  // did neither reliably, and never for keyboard users.
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{item.label}</TooltipContent>
+    </Tooltip>
   );
 }

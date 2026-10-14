@@ -23,9 +23,9 @@ export function PageHeader({
       <div className="stagger min-w-0" style={{ "--index": 0 } as React.CSSProperties}>
         {/* A step down on a phone: 20px over two lines pushes the content
             that answers the question off the first screen. */}
-        <h2 className="text-[18px] font-semibold tracking-tight text-content sm:text-[20px]">
+        <h1 className="text-[18px] font-semibold tracking-tight text-content sm:text-[20px]">
           {title}
-        </h2>
+        </h1>
         {description ? (
           <p className="mt-1 max-w-2xl text-[13.5px] leading-relaxed text-muted">
             {description}

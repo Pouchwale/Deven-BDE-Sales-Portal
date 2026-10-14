@@ -895,6 +895,94 @@ def _fake_response(status: int):
     return httpx.Response(status, request=httpx.Request("POST", "https://api.groq.com"))
 
 
+class _FirstModelRefuses(FakeClient):
+    """The primary model raises `error`; every other model answers."""
+
+    def __init__(self, error: Exception, script: list[FakeMessage]) -> None:
+        super().__init__(script)
+        inner = self.completions
+        refused: list[str] = []
+        self.refused = refused
+
+        class Completions:
+            def create(self, **kwargs):
+                if kwargs["model"] == settings.GROQ_MODEL:
+                    refused.append(kwargs["model"])
+                    raise error
+                return inner.create(**kwargs)
+
+        self.completions = Completions()  # type: ignore[assignment]
+        self._inner = inner
+
+    @property
+    def calls(self) -> list[dict]:
+        return self._inner.calls
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda groq: groq.RateLimitError("slow", response=_fake_response(429), body=None),
+        lambda groq: groq.NotFoundError("gone", response=_fake_response(404), body=None),
+    ],
+)
+def test_a_rate_limited_model_hands_over_to_the_next(
+    client, users, monkeypatch, enable_chat, build
+) -> None:
+    """Groq's free allowance is per model; one tool-using question can drain
+    it. The next model answers instead of the user being told to wait."""
+    import groq
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "primary-model", raising=False)
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODELS", "backup-model", raising=False)
+    fake = _FirstModelRefuses(build(groq), [FakeMessage(content=[FakeTextBlock("from backup")])])
+    monkeypatch.setattr("app.services.chat.client.get_client", lambda: fake)
+
+    response = client.post(
+        "/api/chat/messages",
+        headers=sign_in(client, users["Parth Fulvani"]),
+        json={"message": "hi"},
+    )
+    events = sse_events(response)
+    names = [name for name, _ in events]
+
+    assert "error" not in names
+    assert fake.refused == ["primary-model"]
+    assert [call["model"] for call in fake.calls] == ["backup-model"]
+    assert "".join(data["text"] for name, data in events if name == "delta") == "from backup"
+
+
+def test_a_bad_key_does_not_walk_the_fallback_list(
+    client, users, monkeypatch, enable_chat
+) -> None:
+    """Only failures another model might not share fall through."""
+    import groq
+
+    monkeypatch.setattr(settings, "GROQ_MODEL", "primary-model", raising=False)
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODELS", "backup-model", raising=False)
+    fake = _FirstModelRefuses(
+        groq.AuthenticationError("bad key", response=_fake_response(401), body=None), []
+    )
+    monkeypatch.setattr("app.services.chat.client.get_client", lambda: fake)
+
+    response = client.post(
+        "/api/chat/messages",
+        headers=sign_in(client, users["Parth Fulvani"]),
+        json={"message": "hi"},
+    )
+    events = dict(sse_events(response))
+    assert events["error"]["code"] == "NOT_CONFIGURED"
+    assert fake.calls == []
+
+
+def test_the_model_list_starts_with_the_primary_and_has_no_repeats(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "GROQ_MODEL", "a", raising=False)
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODELS", " a, b ,,b,c", raising=False)
+    assert settings.chat_models == ["a", "b", "c"]
+    monkeypatch.setattr(settings, "GROQ_FALLBACK_MODELS", "", raising=False)
+    assert settings.chat_models == ["a"]
+
+
 @pytest.mark.parametrize(
     ("headers", "expected"),
     [

@@ -26,6 +26,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
+import groq
+
 from app.core.config import settings
 from app.models.org import User
 from app.services.chat import client as llm
@@ -119,6 +121,7 @@ class StreamedTurn:
         self._stream = stream
         self._reply = Reply()
         self._done = False
+        self.model = settings.GROQ_MODEL
 
     def text_deltas(self) -> Iterator[str]:
         """Yield visible text as it arrives, accumulating everything else."""
@@ -203,15 +206,55 @@ def _parse(slot: dict[str, Any]) -> ToolCall | None:
     return ToolCall(id=slot.get("id") or f"call_{name}", name=name, arguments=arguments)
 
 
+def _falls_through(error: Exception) -> bool:
+    """Is this a failure the NEXT model might not have?
+
+    Rate limits are per model on Groq, and a model can be withdrawn from an
+    account. Anything else - a bad key, a malformed request, a timeout - would
+    fail the same way on every model, so it is raised straight away.
+    """
+    if isinstance(error, (groq.RateLimitError, groq.NotFoundError)):
+        return True
+    # 413: "request too large" for this model's per-minute allowance.
+    return isinstance(error, groq.APIStatusError) and error.status_code == 413
+
+
 def stream_turn(*, system: str, history: list[dict], tools: list[dict]) -> StreamedTurn:
-    """Send one request and hand back the turn in flight."""
+    """Send one request and hand back the turn in flight.
+
+    Tries `settings.chat_models` in order. A rate limit surfaces when the
+    request is made, before any text has streamed, so moving on to the next
+    model never duplicates output the user has already seen.
+    """
     client = llm.get_client()
-    stream = client.chat.completions.create(
-        model=settings.GROQ_MODEL,
-        messages=build_messages(system, history),  # type: ignore[arg-type]
-        tools=tools or None,  # type: ignore[arg-type]
-        temperature=settings.CHAT_TEMPERATURE,
-        max_tokens=settings.CHAT_MAX_TOKENS,
-        stream=True,
-    )
-    return StreamedTurn(stream)
+    models = settings.chat_models
+    for position, model in enumerate(models):
+        is_last = position == len(models) - 1
+        # The SDK's own retries wait out a 429 - up to a minute. Pointless
+        # while another model with its own allowance is available.
+        caller = client if is_last or not hasattr(client, "with_options") else (
+            client.with_options(max_retries=0)
+        )
+        try:
+            stream = caller.chat.completions.create(
+                model=model,
+                messages=build_messages(system, history),  # type: ignore[arg-type]
+                tools=tools or None,  # type: ignore[arg-type]
+                temperature=settings.CHAT_TEMPERATURE,
+                max_tokens=settings.CHAT_MAX_TOKENS,
+                stream=True,
+            )
+        except Exception as error:
+            if is_last or not _falls_through(error):
+                raise
+            logger.warning(
+                "Groq model %s unavailable (%s); trying %s",
+                model,
+                type(error).__name__,
+                models[position + 1],
+            )
+            continue
+        turn = StreamedTurn(stream)
+        turn.model = model
+        return turn
+    raise RuntimeError("no assistant model is configured")  # chat_models is never empty

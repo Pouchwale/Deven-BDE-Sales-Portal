@@ -30,6 +30,7 @@ import { EmptyState, ErrorState, Skeleton, TableSkeleton } from "@/components/ui
 import { FilterBar } from "@/components/ui/FilterBar";
 import { Input, Select } from "@/components/ui/Form";
 import { Pagination } from "@/components/ui/Pagination";
+import { PhoneNumber } from "@/components/ui/PhoneNumber";
 import { TBody, TD, TH, THead, TR, Table, TableWrap } from "@/components/ui/Table";
 import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/lib/api";
@@ -411,7 +412,7 @@ function ReferencesInner() {
           {accounts.error ? (
             <ErrorState error={accounts.error} onRetry={accounts.reload} />
           ) : accounts.loading && !accounts.data ? (
-            <TableSkeleton rows={8} columns={5} />
+            <TableSkeleton rows={8} columns={6} />
           ) : mine && visibleAccounts.length === 0 ? (
             <EmptyState
               icon={Users}
@@ -434,6 +435,7 @@ function ReferencesInner() {
                   <THead>
                     <tr>
                       <TH>Account</TH>
+                      <TH>Number</TH>
                       <TH>Owner</TH>
                       <TH>Reference</TH>
                       <TH>{declinedTab ? "Declined on" : "Last asked"}</TH>
@@ -464,6 +466,11 @@ function ReferencesInner() {
                               </span>
                             ) : null}
                           </span>
+                        </TD>
+                        {/* From the sheet: tap to call, or copy - Sales work
+                            from their phones and cannot open the sheet. */}
+                        <TD data-label="Number">
+                          <PhoneNumber value={account.mobile} />
                         </TD>
                         <TD data-label="Owner">
                           {account.owner_name ? (
@@ -922,9 +929,7 @@ function ReferencesInner() {
                           </TD>
                           <TD className="text-muted">{row.owner_name ?? "—"}</TD>
                           <TD>
-                            <span className="block text-[12.5px] text-muted">
-                              {row.mobile ?? "—"}
-                            </span>
+                            <PhoneNumber value={row.mobile} className="text-[12.5px]" />
                             <span className="block truncate text-[12px] text-subtle">
                               {row.email ?? ""}
                             </span>

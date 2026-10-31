@@ -30,7 +30,7 @@ def test_manager_gets_a_personal_score_beside_the_team_score(client, users) -> N
     assert data["shape"] == "MANAGER"
     mine = data["my_reference"]
     assert mine is not None
-    assert set(mine) == {"eligible_accounts", "references_taken", "reference_score"}
+    assert set(mine) == {"eligible_accounts", "references_taken", "reference_score", "open_tasks"}
     # Own accounts are a subset of the team's.
     assert mine["eligible_accounts"] <= data["references"]["eligible_accounts"]
     assert mine["references_taken"] <= data["references"]["references_taken"]

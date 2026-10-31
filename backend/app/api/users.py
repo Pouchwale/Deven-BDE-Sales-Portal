@@ -9,7 +9,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Query, Request, status
-from sqlalchemy import func, or_, select
+from pydantic import BaseModel
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.core import authority
@@ -112,7 +113,8 @@ def list_users(
                 selectinload(User.team),
                 selectinload(User.heads_department),
             )
-            .order_by(User.name)
+            # The Super Admin first, then everyone else by name.
+            .order_by(case((User.role == Role.SUPER_ADMIN, 0), else_=1), User.name)
             .offset((page - 1) * page_size)
             .limit(page_size)
         )
@@ -276,10 +278,11 @@ def reset_password(
 ) -> PasswordSetOut:
     """Set somebody's password. The password is never returned.
 
-    Existing passwords cannot be shown at all - they are one-way hashes. The
-    new one is not echoed either: whoever set it already has it, so sending it
-    back would put a live credential in a response, a browser cache and any
-    proxy log for no gain. The target's sessions end and any lockout clears.
+    The new one is not echoed: whoever set it already has it, so sending it
+    back would put a live credential in a response for no gain. The target's
+    sessions end and any lockout clears. Success is only reported after the
+    change is committed and read back from the database (the Super Admin can
+    still view it later through GET /users/{id}/password).
     """
     target = user_service.get_visible_user_or_404(db, actor, user_id)
     user_service.reset_password(
@@ -291,57 +294,62 @@ def reset_password(
         ip_address=client_ip(request),
     )
     db.commit()
+    user_service.confirm_password_saved(db, target.id, payload.new_password)
     return PasswordSetOut(
         message=(
-            f"{target.name} must choose a new password at their next sign-in."
+            f"Saved. {target.name} must choose a new password after signing in with it."
             if payload.must_change
-            else f"{target.name} can sign in with this password."
+            else f"Saved. {target.name} can sign in with this password now."
         ),
         must_change_password=payload.must_change,
     )
 
 
+class HandoverRow(BaseModel):
+    table: str
+    column: str
+    rows: int
+
+
+class DeletionPreview(BaseModel):
+    """What deleting this person would hand over. Empty = nothing to move."""
+
+    handover: list[HandoverRow]
+
+
+@router.get("/users/{user_id}/deletion", response_model=DeletionPreview)
+def deletion_preview(user_id: uuid.UUID, actor: SuperAdminUser, db: DbSession) -> DeletionPreview:
+    target = user_service.get_visible_user_or_404(db, actor, user_id)
+    return DeletionPreview(
+        handover=[HandoverRow(**row) for row in user_service.handover_counts(db, target)]
+    )
+
+
 @router.delete("/users/{user_id}", response_model=Message)
-def deactivate_user(
+def delete_user(
     user_id: uuid.UUID,
     request: Request,
-    actor: AdminUser,
+    actor: SuperAdminUser,
     db: DbSession,
     # A query parameter rather than a body: DELETE bodies are optional in the
     # spec and several HTTP clients drop them silently.
-    new_manager_id: uuid.UUID | None = Query(default=None),
+    hand_over_to: uuid.UUID | None = Query(default=None),
 ) -> Message:
-    """Soft deactivate. Hard deletion would orphan leads and history."""
-    target = user_service.get_visible_user_or_404(db, actor, user_id)
-    user_service.deactivate_user(
-        db,
-        actor,
-        target,
-        reassign_reports_to=new_manager_id,
-        ip_address=client_ip(request),
-    )
-    db.commit()
-    return Message(message=f"{target.name} has been deactivated.")
+    """Delete an account. Super Admin only; the only way to remove somebody.
 
-
-@router.delete("/users/{user_id}/permanent", response_model=Message)
-def delete_user_permanently(
-    user_id: uuid.UUID, request: Request, actor: SuperAdminUser, db: DbSession
-) -> Message:
-    """Permanently remove an account that has no history. Super Admin only.
-
-    Deliberately a separate route from DELETE /users/{id}, which soft
-    deactivates. Two very different outcomes should not share one verb and
-    differ by a flag somebody can pass by accident.
-
-    Refused with a 409 listing what is attached the moment the person has any
-    history - see `users.delete_user`.
+    Whatever they own (customers, leads, references, feedback work, direct
+    reports) goes to `hand_over_to` first - required when there is anything
+    to move, refused with a 409 listing it otherwise. History keeps their name.
     """
     target = user_service.get_visible_user_or_404(db, actor, user_id)
     name = target.name
-    user_service.delete_user(db, actor, target, ip_address=client_ip(request))
+    receiver = user_service.delete_user(
+        db, actor, target, hand_over_to=hand_over_to, ip_address=client_ip(request)
+    )
     db.commit()
-    return Message(message=f"{name} was permanently deleted.")
+    if receiver is None:
+        return Message(message=f"{name} was deleted.")
+    return Message(message=f"{name} was deleted. Their work now belongs to {receiver.name}.")
 
 
 @router.get("/users/{user_id}/password", response_model=RevealedPassword)
@@ -369,17 +377,6 @@ def unlock_user(
     """Clear a sign-in lockout and the failed-attempt counter."""
     target = user_service.get_visible_user_or_404(db, actor, user_id)
     user_service.unlock_user(db, actor, target, ip_address=client_ip(request))
-    db.commit()
-    db.refresh(target)
-    return _to_detail(db, actor, target)
-
-
-@router.post("/users/{user_id}/reactivate", response_model=UserDetail)
-def reactivate_user(
-    user_id: uuid.UUID, request: Request, actor: AdminUser, db: DbSession
-) -> UserDetail:
-    target = user_service.get_visible_user_or_404(db, actor, user_id)
-    user_service.reactivate_user(db, actor, target, ip_address=client_ip(request))
     db.commit()
     db.refresh(target)
     return _to_detail(db, actor, target)

@@ -1,7 +1,7 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { forwardRef, useId } from "react";
+import { ChevronDown, Eye, EyeOff } from "lucide-react";
+import { forwardRef, useId, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
@@ -91,6 +91,34 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
     </div>
   );
 });
+
+/** A password box with an eye button that shows what was just typed, so it
+ *  can be checked before it is saved. It never shows anything it was not given. */
+export const PasswordInput = forwardRef<HTMLInputElement, Omit<InputProps, "type">>(
+  function PasswordInput({ className, ...props }, ref) {
+    const [shown, setShown] = useState(false);
+    return (
+      <div className="relative">
+        <Input
+          ref={ref}
+          type={shown ? "text" : "password"}
+          className={cn("pr-10", className)}
+          {...props}
+        />
+        <button
+          type="button"
+          onClick={() => setShown((value) => !value)}
+          aria-label={shown ? "Hide password" : "Show password"}
+          aria-pressed={shown}
+          title={shown ? "Hide password" : "Show password"}
+          className="absolute right-1 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content"
+        >
+          {shown ? <EyeOff className="size-4" aria-hidden /> : <Eye className="size-4" aria-hidden />}
+        </button>
+      </div>
+    );
+  },
+);
 
 /* -------------------------------------------------------------- select */
 export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {

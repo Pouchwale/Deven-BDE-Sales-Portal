@@ -22,6 +22,20 @@ class AskableAccountsParams(BaseModel):
         default=None,
         description="Filter to accounts in one reference state, e.g. NOT_ASKED.",
     )
+    mine: bool = Field(
+        default=False,
+        description=(
+            "Only accounts owned by the user themself. A manager's 'my tasks' / "
+            "'my own accounts' / 'my list' - as opposed to their team's."
+        ),
+    )
+    open_only: bool = Field(
+        default=False,
+        description=(
+            "Only accounts still owing an answer (not asked yet, or said "
+            "'later'). With mine=true this is exactly the My tasks tab."
+        ),
+    )
     limit: int | None = Field(default=None, ge=1, le=50)
 
 
@@ -52,6 +66,8 @@ def _accounts(ctx: ToolContext, params: AskableAccountsParams) -> dict:
         ctx.actor,
         ctx.scope,
         reference_status=str(params.reference_status) if params.reference_status else None,
+        open_only=params.open_only,
+        owner_id=ctx.actor.id if params.mine else None,
     )
     limit = ctx.clamp(params.limit)
     items = [p.askable_account_row(row) for row in rows[:limit]]
@@ -110,7 +126,9 @@ register(
         description=(
             "Won accounts that can be asked for a reference - both invoiced SAP "
             "customers and leads converted in the portal. Use for 'who haven't "
-            "we asked yet' by filtering reference_status=NOT_ASKED."
+            "we asked yet' by filtering reference_status=NOT_ASKED. For a "
+            "manager's own 'my tasks', pass mine=true and open_only=true; "
+            "without mine they get their whole team's accounts."
         ),
         params_model=AskableAccountsParams,
         handler=_accounts,

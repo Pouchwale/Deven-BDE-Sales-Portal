@@ -78,6 +78,42 @@ export const API_URL = resolveApiUrl();
 /** Never names an internal address: the person cannot act on it. */
 const NETWORK_ERROR_MESSAGE = "Cannot reach the server. Please try again.";
 
+/** The backend did not answer at all - it is starting, restarting or asleep -
+ *  and whatever stands in front of it (the Next proxy locally, Render's router
+ *  live) answered instead. Not a bug in the page, and not the person's fault. */
+export const SERVER_UNAVAILABLE = "SERVER_UNAVAILABLE";
+const SERVER_UNAVAILABLE_MESSAGE =
+  "The server is starting up or restarting. Please try again in a moment.";
+
+/** A read is retried this long while the server restarts (a local restart
+ *  takes a few seconds), so a page does not fail for a blip. Writes are never
+ *  retried: whether they arrived cannot be known. */
+const READ_RETRY_MS = 20_000;
+const READ_RETRY_EVERY_MS = 2_000;
+
+/** The backend answers every error of its own with the {"error": {...}}
+ *  envelope. A gateway status or a bare 500 without one came from the proxy
+ *  in front of it: the backend never answered. */
+function serverDidNotAnswer(status: number, code: string | undefined): boolean {
+  return code === undefined && [429, 500, 502, 503, 504].includes(status);
+}
+
+function wait(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const aborted = () => reject(new DOMException("Aborted", "AbortError"));
+    if (signal?.aborted) return aborted();
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      aborted();
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /** Must match the backend's CSRF_COOKIE_NAME. */
 const CSRF_COOKIE = "bde_csrf";
 
@@ -160,6 +196,21 @@ interface RequestOptions {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const giveUpAt = Date.now() + ((options.method ?? "GET") === "GET" ? READ_RETRY_MS : 0);
+  for (;;) {
+    try {
+      return await requestOnce<T>(path, options);
+    } catch (cause) {
+      const unreachable =
+        cause instanceof ApiError &&
+        (cause.code === SERVER_UNAVAILABLE || cause.code === "NETWORK_ERROR");
+      if (!unreachable || Date.now() >= giveUpAt) throw cause;
+      await wait(READ_RETRY_EVERY_MS, options.signal);
+    }
+  }
+}
+
+async function requestOnce<T>(path: string, options: RequestOptions): Promise<T> {
   const { method = "GET", body, query, signal } = options;
 
   let response: Response;
@@ -196,6 +247,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   if (!response.ok) {
     const envelope = payload as ApiErrorBody | null;
     const error = envelope?.error;
+    if (serverDidNotAnswer(response.status, error?.code)) {
+      throw new ApiError(response.status, SERVER_UNAVAILABLE, SERVER_UNAVAILABLE_MESSAGE, {});
+    }
     throw new ApiError(
       response.status,
       error?.code ?? "UNKNOWN",
@@ -261,10 +315,18 @@ async function upload<T>(path: string, file: File): Promise<T> {
   }
 
   const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
+  let payload: unknown = null;
+  try {
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = null; // a proxy's plain-text error page
+  }
 
   if (!response.ok) {
     const error = (payload as ApiErrorBody | null)?.error;
+    if (serverDidNotAnswer(response.status, error?.code)) {
+      throw new ApiError(response.status, SERVER_UNAVAILABLE, SERVER_UNAVAILABLE_MESSAGE, {});
+    }
     throw new ApiError(
       response.status,
       error?.code ?? "UNKNOWN",
@@ -441,17 +503,19 @@ export const api = {
       request<Page<UserActivityItem>>(`/api/users/${id}/activity`, { query, signal }),
     departments: (signal?: AbortSignal) =>
       request<Department[]>("/api/departments", { signal }),
-    deactivate: (id: string, newManagerId?: string | null) =>
+    /** What deleting this person would hand over (Super Admin only). */
+    deletionPreview: (id: string, signal?: AbortSignal) =>
+      request<{ handover: { table: string; column: string; rows: number }[] }>(
+        `/api/users/${id}/deletion`,
+        { signal },
+      ),
+    /** The only way to remove somebody. Super Admin only. Whatever they own
+     *  goes to `handOverTo` first; required whenever there is anything to move. */
+    delete: (id: string, handOverTo?: string | null) =>
       request<Message>(`/api/users/${id}`, {
         method: "DELETE",
-        query: { new_manager_id: newManagerId ?? undefined },
+        query: { hand_over_to: handOverTo ?? undefined },
       }),
-    reactivate: (id: string) =>
-      request<UserDetail>(`/api/users/${id}/reactivate`, { method: "POST" }),
-    /** Permanent, Super Admin only, and refused with a 409 if the person has
-     *  any history. Deactivation remains the normal path. */
-    deletePermanently: (id: string) =>
-      request<Message>(`/api/users/${id}/permanent`, { method: "DELETE" }),
     updateMe: (body: { name?: string; phone?: string | null }) =>
       request<User>("/api/me", { method: "PATCH", body }),
   },

@@ -285,15 +285,14 @@ def test_reset_password_clears_a_lockout(client, users, db) -> None:
     assert stored.locked_until is None
 
 
-# ---------------------------------------------------------- deactivation
-def test_deactivate_blocks_login_ends_sessions_and_keeps_history(client, users, db) -> None:
+# -------------------------------------------------------------- delete
+def test_delete_ends_sessions_and_keeps_the_work(client, users, db) -> None:
     from app.models.lead import Lead
 
-    target = users["Parth Fulvani"]
-    manager = sign_in(client, users["Navya Rupawat"])
+    target, receiver = users["Parth Fulvani"], users["Muskan Makhija"]
     lead = client.post(
         "/api/leads",
-        headers=manager,
+        headers=sign_in(client, users["Navya Rupawat"]),
         json={
             "name": "History Keeper Ltd",
             "mobile": "9800000999",
@@ -302,69 +301,37 @@ def test_deactivate_blocks_login_ends_sessions_and_keeps_history(client, users, 
     )
     assert lead.status_code in (200, 201), lead.text
     lead_id = uuid.UUID(lead.json()["id"])
-
     their_headers = sign_in(client, target)
-    audits_before = db.scalar(
-        select(func.count(AuditEvent.id)).where(
-            (AuditEvent.actor_user_id == target.id) | (AuditEvent.entity_id == target.id)
-        )
-    )
-    notes_before = db.scalar(
-        select(func.count(Notification.id)).where(Notification.user_id == target.id)
-    )
 
     response = client.delete(
-        f"/api/users/{target.id}", headers=sign_in(client, users["Shail Patel"])
+        f"/api/users/{target.id}",
+        headers=super_admin_headers(client),
+        params={"hand_over_to": str(receiver.id)},
     )
     assert response.status_code == 200, response.text
 
     assert client.get("/api/auth/me", headers=their_headers).status_code == 401
     assert login(client, target.email, SEED_PASSWORD).status_code == 401
-
     db.expire_all()
-    assert db.get(User, target.id) is not None
-    assert db.get(Lead, lead_id).assigned_to_user_id == target.id
+    assert db.get(User, target.id) is None
+    assert db.get(Lead, lead_id).assigned_to_user_id == receiver.id
     assert db.scalar(
-        select(func.count(AuditEvent.id)).where(
-            (AuditEvent.actor_user_id == target.id) | (AuditEvent.entity_id == target.id)
-        )
-    ) >= audits_before
-    assert db.scalar(
-        select(func.count(Notification.id)).where(Notification.user_id == target.id)
-    ) == notes_before
-
-
-def test_reactivate_restores_sign_in(client, users) -> None:
-    target = users["Bimal"]
-    headers = sign_in(client, users["Shail Patel"])
-    assert client.delete(f"/api/users/{target.id}", headers=headers).status_code == 200
-    assert login(client, target.email, SEED_PASSWORD).status_code == 401
-
-    response = client.post(f"/api/users/{target.id}/reactivate", headers=headers)
-    assert response.status_code == 200, response.text
-    assert response.json()["is_active"] is True
-    assert login(client, target.email, SEED_PASSWORD).status_code == 200
+        select(func.count(AuditEvent.id)).where(AuditEvent.actor_name == target.name)
+    ) > 0
 
 
 # ------------------------------------------------ last Super Admin guard
-def test_last_super_admin_cannot_be_deactivated_demoted_or_deleted(client, users) -> None:
+def test_last_super_admin_cannot_be_demoted_or_deleted(client, users) -> None:
     owner = users["Portal Owner"]
     headers = super_admin_headers(client)
 
-    deactivate = client.delete(f"/api/users/{owner.id}", headers=headers)
-    assert deactivate.status_code == 409, deactivate.text
-    assert "last active Super Admin" in deactivate.json()["error"]["message"]
+    delete = client.delete(f"/api/users/{owner.id}", headers=headers)
+    assert delete.status_code == 409, delete.text
+    assert "last active Super Admin" in delete.json()["error"]["message"]
 
     demote = client.patch(f"/api/users/{owner.id}", headers=headers, json={"role": "ADMIN"})
     assert demote.status_code == 409, demote.text
 
-    patch_off = client.patch(
-        f"/api/users/{owner.id}", headers=headers, json={"is_active": False}
-    )
-    assert patch_off.status_code == 409, patch_off.text
-
-    delete = client.delete(f"/api/users/{owner.id}/permanent", headers=headers)
-    assert delete.status_code == 409, delete.text
 
     assert owner.is_active is True
     assert owner.role == Role.SUPER_ADMIN
@@ -387,13 +354,14 @@ def test_last_super_admin_guard_applies_even_with_authority(db, users) -> None:
     db.add(backup)
     db.flush()
 
-    # Two active: the owner (backup's manager) may deactivate the backup.
-    user_service.deactivate_user(db, owner, backup)
-    assert backup.is_active is False
+    # Two active: the owner (backup's manager) may delete the backup.
+    user_service.delete_user(db, owner, backup)
+    db.flush()
+    assert db.get(User, backup.id) is None
 
-    # Now the owner is the only one left.
+    # Now the owner is the only one left: nobody may remove them.
     with pytest.raises(ApiError) as refused:
-        user_service.deactivate_user(db, backup, owner)
+        user_service.delete_user(db, owner, owner)
     assert refused.value.status_code == 409
 
 

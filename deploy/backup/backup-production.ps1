@@ -8,13 +8,12 @@
   this PC's development copy:
 
   - pg_dump custom format of production, as production-YYYYMMDD-HHmmss.dump
-    in backups\production in the folder that holds the repository
-    (D:\BDE and SALES PORTAL\backups\production), with a .sha256 beside it.
+    in D:\GP3\backups\production, with a .sha256 beside it.
   - Proves the archive is readable and holds table data (pg_restore --list).
   - Retention: newest of each of the last 14 days, last 8 Sundays, last 6
     first-of-month dumps. Hand-named dumps are never deleted.
   - Nothing is ever written to production. Nothing local is changed.
-  - Log: backup.log in that folder. Exit code 1 on failure, which
+  - Log: D:\GP3\backups\production\backup.log. Exit code 1 on failure, which
     Task Scheduler shows as Last Run Result <> 0x0.
 
   Credential: set-production-credential.ps1 (once). Nightly schedule:
@@ -28,11 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-  # Blank = backups\production beside the repository, worked out below rather
-  # than a fixed drive path: renaming or moving the project folder must not
-  # send backups somewhere else. (Not here: Windows PowerShell leaves
-  # $PSScriptRoot empty in the parameter defaults of a [CmdletBinding()] script.)
-  [string]$Destination = "",
+  [string]$Destination = "D:\GP3\backups\production",
   [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin"
 )
 
@@ -41,7 +36,6 @@ Import-Module (Join-Path $PSScriptRoot "DbTools.psm1") -Force
 Set-PgBin $PgBin
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-if (-not $Destination) { $Destination = Join-Path (Split-Path $RepoRoot -Parent) "backups\production" }
 $exitCode = 0
 try {
   if (Test-InsidePath $Destination $RepoRoot) {

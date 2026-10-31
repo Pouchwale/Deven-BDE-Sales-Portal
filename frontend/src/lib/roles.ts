@@ -32,8 +32,8 @@ export function isAdmin(role: Role | undefined | null): boolean {
   return role === "ADMIN" || role === "SUPER_ADMIN";
 }
 
-/** Strictly the top role. Permanently deleting an account is theirs alone;
- *  a plain Admin may deactivate, which is reversible. */
+/** Strictly the top role. Deleting an account (the only way to remove
+ *  somebody) is theirs alone. */
 export function isSuperAdmin(role: Role | undefined | null): boolean {
   return role === "SUPER_ADMIN";
 }
@@ -92,6 +92,7 @@ export const ERROR_HINTS: Record<string, string> = {
   PASSWORD_CHANGE_REQUIRED: "Set a new password before continuing.",
   RATE_LIMITED: "Too many attempts. Wait a moment and try again.",
   NETWORK_ERROR: "The server is not responding.",
+  SERVER_UNAVAILABLE: "The server is starting up or restarting. Try again in a moment.",
 };
 
 

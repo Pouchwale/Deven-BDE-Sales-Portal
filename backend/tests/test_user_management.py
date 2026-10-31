@@ -115,6 +115,15 @@ def test_user_list_is_scoped_to_the_subtree(client, users) -> None:
     assert admin.json()["total"] == 22
 
 
+def test_user_list_puts_the_super_admin_first_then_names_in_order(client, users) -> None:
+    items = client.get(
+        "/api/users?page_size=200", headers=super_admin_headers(client)
+    ).json()["items"]
+    assert items[0]["role"] == Role.SUPER_ADMIN
+    rest = [i["name"] for i in items if i["role"] != Role.SUPER_ADMIN]
+    assert rest == sorted(rest)
+
+
 def test_field_users_cannot_list_the_directory(client, users) -> None:
     response = client.get("/api/users", headers=sign_in(client, users["Parth Fulvani"]))
     assert response.status_code == 403
@@ -402,35 +411,120 @@ def test_a_password_can_be_set_without_forcing_a_change(client, users) -> None:
     assert login.json()["must_change_password"] is False
 
 
-# ---------------------------------------------------------- deactivation
-def test_deactivate_blocked_while_a_user_has_direct_reports(client, users) -> None:
+# ------------------------------------------------- removing somebody: delete
+# Deactivation was removed (owner's request, 2026-10-30). The only way to
+# remove a person is DELETE /api/users/{id}, Super Admin only, which hands
+# whatever they own to somebody else first. Older accounts may still be
+# inactive in the data; those are reproduced by setting the flag directly.
+def _mark_inactive(db, user) -> None:
+    user.is_active = False
+    db.commit()
+
+
+def test_delete_without_a_hand_over_is_refused_and_names_the_work(client, users) -> None:
     response = client.delete(
-        f"/api/users/{users['Navya Rupawat'].id}",
-        headers=sign_in(client, users["Shail Patel"]),
+        f"/api/users/{users['Navya Rupawat'].id}", headers=super_admin_headers(client)
     )
-    assert response.status_code == 409
-    assert error_code(response) == ErrorCode.HAS_DIRECT_REPORTS
-    assert len(response.json()["error"]["details"]["reports"]) == 4
+    assert response.status_code == 409, response.text
+    handover = {
+        f"{row['table']}.{row['column']}": row["rows"]
+        for row in response.json()["error"]["details"]["handover"]
+    }
+    assert handover["users.manager_id"] == 4
     assert users["Navya Rupawat"].is_active is True
 
 
-def test_deactivate_with_reparenting_succeeds(client, users) -> None:
-    headers = sign_in(client, users["Shail Patel"])
+def test_deleting_a_manager_hands_reports_and_work_to_the_chosen_person(
+    client, users, db
+) -> None:
+    from app.models.lead import Lead
+    from app.models.org import User
+
+    navya, ramanesh = users["Navya Rupawat"], users["Ramanesh Nair"]
+    lead = client.post(
+        "/api/leads",
+        headers=sign_in(client, users["Shail Patel"]),
+        json={"name": "Handover Ltd", "mobile": "9800000732", "assigned_to_user_id": str(navya.id)},
+    )
+    assert lead.status_code in (200, 201), lead.text
+
+    preview = client.get(f"/api/users/{navya.id}/deletion", headers=super_admin_headers(client))
+    assert preview.status_code == 200 and preview.json()["handover"]
+
     response = client.delete(
-        f"/api/users/{users['Navya Rupawat'].id}",
-        headers=headers,
-        params={"new_manager_id": str(users["Ramanesh Nair"].id)},
+        f"/api/users/{navya.id}",
+        headers=super_admin_headers(client),
+        params={"hand_over_to": str(ramanesh.id)},
     )
     assert response.status_code == 200, response.text
-    assert users["Navya Rupawat"].is_active is False
-    assert users["Navya Rupawat"].deactivated_at is not None
-    assert users["Parth Fulvani"].manager_id == users["Ramanesh Nair"].id
+    assert "Ramanesh Nair" in response.json()["message"]
+
+    db.expire_all()
+    assert db.get(User, navya.id) is None
+    assert db.get(User, users["Parth Fulvani"].id).manager_id == ramanesh.id
+    assert db.get(Lead, uuid.UUID(lead.json()["id"])).assigned_to_user_id == ramanesh.id
 
 
-def test_a_deactivated_user_cannot_sign_in(client, users) -> None:
+def test_history_keeps_the_deleted_persons_name(client, users, db) -> None:
+    from app.models.system import AuditEvent
+
+    parth = users["Parth Fulvani"]
+    sign_in(client, parth)  # a sign-in writes an audit row with Parth as actor
+    response = client.delete(
+        f"/api/users/{parth.id}",
+        headers=super_admin_headers(client),
+        params={"hand_over_to": str(users["Muskan Makhija"].id)},
+    )
+    assert response.status_code == 200, response.text
+    named = db.scalar(
+        select(func.count(AuditEvent.id)).where(AuditEvent.actor_name == "Parth Fulvani")
+    )
+    assert named and named > 0
+
+
+def test_every_link_to_a_user_is_handled_by_delete() -> None:
+    """Each foreign key to users is handed over, keeps a name, is cleared, or
+    goes with the person - so a table added later cannot lose its owner
+    without somebody deciding which of the four it is."""
+    from app.db.base import Base
+    from app.services import users as user_service
+
+    classified = set(
+        user_service.HANDED_OVER
+        + user_service.NAMED_HISTORY
+        + user_service.CLEARED
+        + user_service.REMOVED_WITH_THEM
+    )
+    found = {
+        (table.name, column.name)
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if any(fk.column.table.name == "users" for fk in column.foreign_keys)
+    }
+    assert found == classified, found ^ classified
+
+
+def test_edit_can_no_longer_deactivate(client, users) -> None:
     target = users["Bimal"]
-    client.delete(f"/api/users/{target.id}", headers=sign_in(client, users["Shail Patel"]))
-    assert target.is_active is False
+    response = client.patch(
+        f"/api/users/{target.id}",
+        headers=sign_in(client, users["Shail Patel"]),
+        json={"is_active": False, "title": "Still here"},
+    )
+    assert response.status_code in (200, 422), response.text
+    assert target.is_active is True
+
+
+def test_deactivate_and_reactivate_routes_are_gone(client, users) -> None:
+    headers = super_admin_headers(client)
+    target = users["Bimal"]
+    assert client.post(f"/api/users/{target.id}/reactivate", headers=headers).status_code in (404, 405)
+    assert client.delete(f"/api/users/{target.id}/permanent", headers=headers).status_code in (404, 405)
+
+
+def test_an_inactive_account_cannot_sign_in(client, users, db) -> None:
+    target = users["Bimal"]
+    _mark_inactive(db, target)
     login = client.post(
         "/api/auth/login", json={"email": target.email, "password": SEED_PASSWORD}
     )
@@ -445,24 +539,19 @@ def _org_names(nodes) -> list[str]:
     return out
 
 
-def test_deactivating_a_user_drops_them_from_every_headcount(client, users) -> None:
-    """One switch, every list. A person who has been deactivated should stop
-    being counted as a member of the team - on the dashboard, in the org
-    chart and in the roster - without anybody having to remember a second
-    place to update. This existed as a bug: the dashboard's people table and
-    the assistant's team-workload tool both kept listing the leaver.
-    """
+def test_an_inactive_account_drops_out_of_every_headcount(client, users, db) -> None:
+    """One flag, every list: an inactive account from before deactivation was
+    removed is counted nowhere until somebody deletes it."""
     target = users["Bimal"]
     headers = sign_in(client, users["Shail Patel"])
 
     before_dash = client.get("/api/dashboard", headers=headers).json()
     assert target.name in [row["name"] for row in before_dash["reports"]]
 
-    assert client.delete(f"/api/users/{target.id}", headers=headers).status_code == 200
+    _mark_inactive(db, target)
 
     dashboard = client.get("/api/dashboard", headers=headers).json()
     assert target.name not in [row["name"] for row in dashboard["reports"]]
-    # Not merely absent by name - nothing inactive may appear at all.
     assert all(row["is_active"] for row in dashboard["reports"])
 
     chart = client.get("/api/users/org-chart", headers=headers).json()
@@ -472,17 +561,12 @@ def test_deactivating_a_user_drops_them_from_every_headcount(client, users) -> N
     assert target.name not in [row["name"] for row in roster["items"]]
 
 
-def test_deactivated_people_are_still_reachable_when_asked_for(client, users) -> None:
-    """Hidden by default, never deleted. The Team page's switch has to be able
-    to bring them back or a deactivation would be unauditable from the UI."""
+def test_inactive_accounts_can_still_be_listed_so_they_can_be_deleted(
+    client, users, db
+) -> None:
     target = users["Bimal"]
     headers = sign_in(client, users["Shail Patel"])
-    client.delete(f"/api/users/{target.id}", headers=headers)
-
-    chart = client.get(
-        "/api/users/org-chart", headers=headers, params={"include_inactive": True}
-    ).json()
-    assert target.name in _org_names(chart)
+    _mark_inactive(db, target)
 
     roster = client.get(
         "/api/users",
@@ -493,43 +577,33 @@ def test_deactivated_people_are_still_reachable_when_asked_for(client, users) ->
     assert row["is_active"] is False
 
 
-def test_team_headcount_ignores_leavers_but_their_leads_still_count(
-    client, users, db
-) -> None:
-    """Deactivating somebody does not reassign their leads, so the team's
-    pipeline must not shrink when they leave - only the headcount does.
+def test_deleting_somebody_moves_their_pipeline_with_them(client, users, db) -> None:
+    """The team's pipeline follows the person taking over; nothing is lost."""
+    from app.models.lead import Lead
 
-    The rollup counts LEADS now. It used to count owned SAP customers, which
-    told an administrator nothing about what the team was working on.
-    """
-    from app.services.dashboard import _team_rollup
-
-    target = users["Parth Fulvani"]
-    # Without leads on the books the "pipeline unchanged" assertion below
-    # would be 0 == 0 and would prove nothing, so give them one first.
-    manager = sign_in(client, users["Navya Rupawat"])
+    target, receiver = users["Parth Fulvani"], users["Muskan Makhija"]
     client.post(
         "/api/leads",
-        headers=manager,
-        json={
-            "name": "Leaver's Pipeline Ltd",
-            "mobile": "9800000731",
-            "assigned_to_user_id": str(target.id),
-        },
+        headers=sign_in(client, users["Navya Rupawat"]),
+        json={"name": "Leaver Pipeline Ltd", "mobile": "9800000731", "assigned_to_user_id": str(target.id)},
     )
     db.expire_all()
+    total_before = db.scalar(select(func.count(Lead.id)))
+    theirs = db.scalar(select(func.count(Lead.id)).where(Lead.assigned_to_user_id == target.id))
+    receivers = db.scalar(select(func.count(Lead.id)).where(Lead.assigned_to_user_id == receiver.id))
+    assert theirs > 0
 
-    before = {row["team_name"]: row for row in _team_rollup(db)}
-    team = target.team.name if target.team else "Unassigned"
-    assert before[team]["open_leads"] > 0
-
-    client.delete(f"/api/users/{target.id}", headers=sign_in(client, users["Shail Patel"]))
-    db.flush()
-
-    after = {row["team_name"]: row for row in _team_rollup(db)}
-    assert after[team]["members"] == before[team]["members"] - 1
-    assert after[team]["open_leads"] == before[team]["open_leads"]
-    assert after[team]["converted"] == before[team]["converted"]
+    response = client.delete(
+        f"/api/users/{target.id}",
+        headers=super_admin_headers(client),
+        params={"hand_over_to": str(receiver.id)},
+    )
+    assert response.status_code == 200, response.text
+    db.expire_all()
+    assert db.scalar(select(func.count(Lead.id))) == total_before
+    assert db.scalar(
+        select(func.count(Lead.id)).where(Lead.assigned_to_user_id == receiver.id)
+    ) == receivers + theirs
 
 
 # ---------------------------------------------------------- self-service
@@ -597,7 +671,7 @@ def test_every_gated_mutation_writes_an_audit_row(client, db, users) -> None:
     assert "hashed_password" not in (event.after or {})
 
 
-# ------------------------------------------------------ permanent delete
+# ---------------------------------------------- delete: accounts with no work
 def test_an_account_with_no_history_can_be_deleted(client, users, db) -> None:
     """The case this exists for: an account created by mistake."""
     from app.models.org import User
@@ -614,9 +688,9 @@ def test_an_account_with_no_history_can_be_deleted(client, users, db) -> None:
         },
     ).json()
 
-    response = client.delete(f"/api/users/{created['id']}/permanent", headers=headers)
+    response = client.delete(f"/api/users/{created['id']}", headers=headers)
     assert response.status_code == 200, response.text
-    assert "permanently deleted" in response.json()["message"]
+    assert "was deleted" in response.json()["message"]
     assert db.get(User, uuid.UUID(created["id"])) is None
 
 
@@ -643,34 +717,14 @@ def test_a_session_row_alone_does_not_block_deletion(client, users, db) -> None:
     session_store.create_session(db, target)
     db.flush()
 
-    assert not any(
-        row["table"] == "user_sessions" for row in user_service.deletion_blockers(db, target)
-    )
+    assert user_service.handover_counts(db, target) == []
+    user_service.delete_user(db, users["Portal Owner"], target)
+    db.flush()
+    assert db.get(User, target.id) is None
 
 
-def test_deleting_somebody_with_history_is_refused_with_the_reason(
-    client, users
-) -> None:
-    """Never let "delete" quietly become "erase who did this".
-
-    Most of the columns pointing at a user are ON DELETE SET NULL, so the
-    database would happily blank the owner of every lead they worked. The
-    refusal is what stands between that and a Super Admin in a hurry.
-    """
-    response = client.delete(
-        f"/api/users/{users['Parth Fulvani'].id}/permanent",
-        headers=super_admin_headers(client),
-    )
-    assert response.status_code == 409, response.text
-    details = response.json()["error"]["details"]
-    assert details["blockers"], "the refusal must say what is attached"
-    # And it names tables, so the reason is actionable rather than a shrug.
-    assert all({"table", "column", "rows"} <= set(row) for row in details["blockers"])
-    assert "Deactivate them instead" in response.json()["error"]["message"]
-
-
-def test_only_a_super_admin_can_delete_permanently(client, users) -> None:
-    """A plain Admin may deactivate. Erasing an account is a bigger act."""
+def test_only_a_super_admin_can_delete(client, users) -> None:
+    """Deleting is the only way to remove somebody, and it is the Super Admin's alone."""
     created = client.post(
         "/api/users",
         headers=super_admin_headers(client),
@@ -683,7 +737,7 @@ def test_only_a_super_admin_can_delete_permanently(client, users) -> None:
     ).json()
 
     response = client.delete(
-        f"/api/users/{created['id']}/permanent",
+        f"/api/users/{created['id']}",
         headers=sign_in(client, users["Shail Patel"]),
     )
     assert response.status_code == 403, response.text
@@ -691,7 +745,7 @@ def test_only_a_super_admin_can_delete_permanently(client, users) -> None:
 
 def test_a_super_admin_cannot_delete_themselves(client, users) -> None:
     response = client.delete(
-        f"/api/users/{users['Portal Owner'].id}/permanent",
+        f"/api/users/{users['Portal Owner'].id}",
         headers=super_admin_headers(client),
     )
     # 409 when they are the last active Super Admin, 403 (self) otherwise.
@@ -718,7 +772,7 @@ def test_deleting_a_user_does_not_touch_anybody_elses_rows(client, users, db) ->
             "role": Role.BDE,
         },
     ).json()
-    client.delete(f"/api/users/{created['id']}/permanent", headers=headers)
+    client.delete(f"/api/users/{created['id']}", headers=headers)
 
     assert db.scalar(select(func.count(Lead.id))) == before_leads
     assert db.scalar(select(func.count(User.id))) == before_users

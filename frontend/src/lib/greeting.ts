@@ -110,6 +110,16 @@ export function focusLines(data: Dashboard | null): FocusLine[] {
   // the threshold on it. Saying it twice in two styles is noise.
   const { leads, references, feedback_pending } = data;
 
+  // First for a manager: their own list, which the team-wide numbers below
+  // would otherwise bury.
+  if (data.my_reference && data.my_reference.open_tasks > 0) {
+    lines.push({
+      text: `My tasks: ${plural(data.my_reference.open_tasks, "account of your own", "accounts of your own")} to ask.`,
+      href: "/references?tab=mine",
+      tone: "attention",
+    });
+  }
+
   if (leads.follow_ups_due > 0) {
     lines.push({
       text: `${plural(leads.follow_ups_due, "follow-up", "follow-ups")} due today or earlier.`,

@@ -8,9 +8,7 @@ Render dashboard.
 
 ## The project
 
-- **Repo root:** `D:\BDE and SALES PORTAL\Portal - V2` (until 2026-10-14
-  `D:\GP3\Portal - V2`; git remote `github.com/Pouchwale/Deven-BDE-Sales-Portal`,
-  branch `main`).
+- **Repo root:** `D:\GP3\Portal - V2` (git remote `github.com/Pouchwale/Deven`, branch `main`).
 - **Backend:** FastAPI + SQLAlchemy, Python venv at `backend/.venv`. Postgres in
   production, SQLite for tests. Hand-written migrations in `backend/app/db/sql/`.
 - **Frontend:** Next.js (a newer version with breaking changes — read
@@ -162,17 +160,18 @@ User preference: commit and push to `main` after every change.
   development**: `backend/.env` has `ENV=development` + `localhost` Postgres.
   The local DB had been a copy frozen on 2026-09-17, so passwords changed on
   Render failed locally - that was the "works on Render, fails locally" bug.
-- Local sign-in: the `-dev` accounts (`superadmin-dev`, `shail-dev`,
-  `navya-dev`, `parth-dev`), password `DEV_ACCOUNT_PASSWORD` in backend/.env.
-  `python -m app.seeds.dev_accounts [--reset]`.
+- Local sign-in: the real accounts, same passwords as production. The old
+  `-dev` test accounts were removed 2026-10-30 (owner's request) and are never
+  re-created; `python -m app.seeds.dev_accounts --remove` clears them from an
+  older local copy.
 - Guards: `backend/app/core/environment_guard.py`. Seeds/dev accounts need
   ENV=development set explicitly + not Render + local DB; remote-DB commands
   need ENV=production explicitly (or to be on Render). Locally SUPER_ADMIN_*
   never resets an existing account.
 - Backups: `deploy\backup\backup-production.ps1` (Render, read only) nightly via
-  task *BDE Portal - production backup* -> `backups\production` beside the
-  repository. The old task backed up the stale local copy; removed. Old local
-  dumps -> `backups\local-dev`.
+  task *BDE Portal - production backup* -> `D:\GP3\backups\production`. The old
+  task backed up the stale local copy; removed. Old local dumps ->
+  `D:\GP3\backups\local-dev`.
 - Manual refresh local <- production: `deploy\backup\copy-from-render.ps1`.
   Credential once: `deploy\backup\set-production-credential.ps1` (DPAPI,
   `%LOCALAPPDATA%\BDEPortal`). `copy-to-render.ps1` was deleted on purpose.

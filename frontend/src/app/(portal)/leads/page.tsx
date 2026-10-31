@@ -37,6 +37,7 @@ import {
   PIPELINE_ORDER,
   STALE_AFTER_DAYS,
   STAT_KEY,
+  CLOSED_LEAD_STATUSES,
   isStale,
 } from "@/lib/leads";
 import { isAdmin, isLeadership } from "@/lib/roles";
@@ -53,6 +54,10 @@ const CreateLeadDialog = dynamic(
 );
 const LeadDetailDialog = dynamic(
   () => import("@/components/leads/LeadDialogs").then((m) => m.LeadDetailDialog),
+  { ssr: false },
+);
+const TransferLeadDialog = dynamic(
+  () => import("@/components/leads/LeadDialogs").then((m) => m.TransferLeadDialog),
   { ssr: false },
 );
 
@@ -78,6 +83,12 @@ function LeadsInner() {
    */
   const assigns = isLeadership(user?.role);
   const carriesOwnWork = !isAdmin(user?.role);
+  // A manager can hand an open lead they hold to their own team (the server
+  // applies the same rule).
+  const canTransfer = (lead: { assigned_to_user_id: string | null; status: string }) =>
+    assigns &&
+    lead.assigned_to_user_id === user?.id &&
+    !CLOSED_LEAD_STATUSES.includes(lead.status as LeadStatus);
   const requestedTab = params.get("tab");
   const tab = requestedTab ?? (carriesOwnWork ? "my-work" : "assigned-by-me");
   const assigneeFilter = params.get("assignee") ?? "";
@@ -106,6 +117,7 @@ function LeadsInner() {
   const [page, setPage] = useState(1);
   const [creating, setCreating] = useState(false);
   const [openLead, setOpenLead] = useState<string | null>(null);
+  const [transferring, setTransferring] = useState<{ id: string; name: string } | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const debounced = useDebounced(search, 300);
@@ -295,11 +307,11 @@ function LeadsInner() {
             ) : queue.data ? (
               <ul className="divide-y divide-line">
                 {queue.data.assigned_leads.map((lead) => (
-                  <li key={lead.id}>
+                  <li key={lead.id} className="flex items-center gap-2 pr-3">
                     <button
                       type="button"
                       onClick={() => setOpenLead(lead.id)}
-                      className="flex w-full items-start justify-between gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-hover"
+                      className="flex min-w-0 flex-1 items-start justify-between gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-hover"
                     >
                       <span className="min-w-0">
                         <span className="block truncate text-[13.5px] font-medium text-content">
@@ -324,6 +336,11 @@ function LeadsInner() {
                         {lead.priority}
                       </Badge>
                     </button>
+                    {canTransfer(lead) ? (
+                      <TransferButton
+                        onClick={() => setTransferring({ id: lead.id, name: lead.name })}
+                      />
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -503,6 +520,7 @@ function LeadsInner() {
                       <TH>Assigned to</TH>
                       <TH>Follow up</TH>
                       <TH align="right">Last activity</TH>
+                      {assigns ? <TH align="right">Transfer</TH> : null}
                     </tr>
                   </THead>
                   <TBody>
@@ -577,6 +595,15 @@ function LeadsInner() {
                             <span className="text-subtle">None</span>
                           )}
                         </TD>
+                        {assigns ? (
+                          <TD data-actions align="right">
+                            {canTransfer(lead) ? (
+                              <TransferButton
+                                onClick={() => setTransferring({ id: lead.id, name: lead.name })}
+                              />
+                            ) : null}
+                          </TD>
+                        ) : null}
                       </TR>
                     ))}
                   </TBody>
@@ -722,6 +749,14 @@ function LeadsInner() {
           onSaved={reload}
         />
       ) : null}
+      {transferring ? (
+        <TransferLeadDialog
+          key={transferring.id}
+          lead={transferring}
+          onClose={() => setTransferring(null)}
+          onDone={reload}
+        />
+      ) : null}
       {openLead ? (
         <LeadDetailDialog
           key={openLead}
@@ -731,6 +766,15 @@ function LeadsInner() {
         />
       ) : null}
     </>
+  );
+}
+
+function TransferButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button size="sm" variant="secondary" className="shrink-0" onClick={onClick}>
+      <Forward className="size-3.5" aria-hidden />
+      Transfer
+    </Button>
   );
 }
 

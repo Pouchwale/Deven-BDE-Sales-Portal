@@ -9,7 +9,7 @@ import {
 } from "@/components/admin/passwordPolicy";
 import { Button } from "@/components/ui/Button";
 import { InlineError } from "@/components/ui/Feedback";
-import { Field, Input, Select } from "@/components/ui/Form";
+import { Field, Input, PasswordInput, Select } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Modal";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { ERROR_HINTS, isAdmin, roleLabel } from "@/lib/roles";
@@ -39,7 +39,6 @@ interface FormState {
   manager_id: string;
   team_id: string;
   heads_department_id: string;
-  status: "active" | "inactive";
 }
 
 const EMPTY: FormState = {
@@ -56,7 +55,6 @@ const EMPTY: FormState = {
   manager_id: "",
   team_id: "",
   heads_department_id: "",
-  status: "active",
 };
 
 export function UserFormDialog({
@@ -91,7 +89,6 @@ export function UserFormDialog({
           manager_id: user.manager_id ?? "",
           team_id: user.team_id ?? "",
           heads_department_id: user.heads_department_id ?? "",
-          status: user.is_active ? "active" : "inactive",
         }
       : EMPTY,
   );
@@ -177,15 +174,13 @@ export function UserFormDialog({
           manager_id: form.manager_id || null,
           team_id: form.team_id || null,
         };
-        // Only sent when changed: headship and status carry their own checks
-        // on the server, which an unrelated edit should not trip.
+        // Only sent when changed: headship carries its own checks on the
+        // server, which an unrelated edit should not trip.
         if (actorIsAdmin && (form.heads_department_id || null) !== user.heads_department_id) {
           body.heads_department_id = form.heads_department_id || null;
         }
         const nextUsername = form.username.trim().toLowerCase();
         if (nextUsername && nextUsername !== (user.username ?? "")) body.username = nextUsername;
-        const nextActive = form.status === "active";
-        if (nextActive !== user.is_active) body.is_active = nextActive;
 
         await api.users.update(user.id, body);
         toast.success("Saved", `${form.name} has been updated.`);
@@ -300,9 +295,8 @@ export function UserFormDialog({
                 error={passwordIssue}
                 hint={PASSWORD_POLICY_HINT}
               >
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   required
                   minLength={PASSWORD_MIN_LENGTH}
                   autoComplete="new-password"
@@ -317,9 +311,8 @@ export function UserFormDialog({
                 required
                 error={confirmMismatch ? "The two passwords do not match." : null}
               >
-                <Input
+                <PasswordInput
                   id="confirm-password"
-                  type="password"
                   required
                   autoComplete="new-password"
                   value={form.confirm}
@@ -480,25 +473,6 @@ export function UserFormDialog({
                 </Select>
               </Field>
             ) : null}
-
-            <Field
-              label="Account status"
-              htmlFor="status"
-              hint={
-                (user?.direct_report_count ?? 0) > 0 && form.status === "inactive"
-                  ? "Their direct reports need a new manager first — use Deactivate to move them."
-                  : "Inactive accounts cannot sign in. Nothing is deleted."
-              }
-            >
-              <Select
-                id="status"
-                value={form.status}
-                onChange={(event) => set("status", event.target.value as FormState["status"])}
-              >
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-              </Select>
-            </Field>
           </div>
         ) : null}
 

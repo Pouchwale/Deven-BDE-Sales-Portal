@@ -124,6 +124,13 @@ def _build(db: Session, actor: User) -> dict:
             "eligible_accounts": own["eligible"],
             "references_taken": own["taken"],
             "reference_score": own["score"],
+            # "My tasks": the manager's own accounts still owing an answer -
+            # the same query the My tasks tab on Reference Tracking lists.
+            "open_tasks": len(
+                reference_service.askable_accounts(
+                    db, actor, scope, open_only=True, owner_id=actor.id
+                )
+            ),
         }
 
     return result

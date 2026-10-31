@@ -215,11 +215,16 @@ export function CreateLeadDialog({
 function PassOnPanel({
   lead,
   onPassed,
+  startOpen = false,
+  onCancel,
 }: {
-  lead: LeadDetail;
+  lead: { id: string };
   onPassed: (next: LeadDetail, toName: string) => void;
+  /** Already showing the picker (the Transfer dialog), not the button. */
+  startOpen?: boolean;
+  onCancel?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [team, setTeam] = useState<User[] | null>(null);
   const [to, setTo] = useState("");
   const [reason, setReason] = useState("");
@@ -242,10 +247,11 @@ function PassOnPanel({
   const toName = team?.find((person) => person.id === to)?.name ?? "";
 
   function cancel() {
-    setOpen(false);
+    setOpen(startOpen);
     setTo("");
     setReason("");
     setError(null);
+    onCancel?.();
   }
 
   async function submit() {
@@ -254,7 +260,8 @@ function PassOnPanel({
     setError(null);
     try {
       onPassed(await api.leads.passOn(lead.id, to, reason.trim()), toName);
-      cancel();
+      setTo("");
+      setReason("");
     } catch (cause) {
       setError(cause instanceof Error ? cause : new Error(String(cause)));
     } finally {
@@ -267,7 +274,7 @@ function PassOnPanel({
       <div className="flex flex-wrap items-center gap-2.5">
         <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
           <Forward className="size-4" aria-hidden />
-          Pass on to my team
+          Transfer lead
         </Button>
         <span className="text-[12.5px] text-subtle">
           Moves it off your list. Every pass is kept on record.
@@ -278,7 +285,7 @@ function PassOnPanel({
 
   return (
     <div className="rounded-lg border border-line bg-surface-2 p-3">
-      <p className="mb-2 text-[12.5px] font-semibold text-content">Pass this lead on</p>
+      <p className="mb-2 text-[12.5px] font-semibold text-content">Transfer this lead</p>
       {team === null ? (
         <div className="flex justify-center py-3">
           <Spinner />
@@ -317,7 +324,7 @@ function PassOnPanel({
       {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         <Button size="sm" loading={busy} disabled={!to} onClick={() => void submit()}>
-          Pass on
+          Transfer
         </Button>
         <Button size="sm" variant="secondary" disabled={busy} onClick={cancel}>
           Cancel
@@ -333,6 +340,43 @@ function PassOnPanel({
 }
 
 /* ---------------------------------------------------------- lead detail */
+/**
+ * Transfer a lead you hold to somebody in your team, straight from the list -
+ * the same pass-on as inside the lead (same rules on the server: open leads
+ * only, your own team only, the receiver is notified, kept in Passed on).
+ */
+export function TransferLeadDialog({
+  lead,
+  onClose,
+  onDone,
+}: {
+  lead: { id: string; name: string };
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="md"
+      title={`Transfer ${lead.name}`}
+      description="Pick someone in your team. They get the lead and a notification."
+    >
+      <PassOnPanel
+        lead={lead}
+        startOpen
+        onCancel={onClose}
+        onPassed={(_, toName) => {
+          toast.success("Lead transferred", `${toName} has ${lead.name} now and was notified.`);
+          onDone();
+          onClose();
+        }}
+      />
+    </Modal>
+  );
+}
+
 export function LeadDetailDialog({
   leadId,
   onClose,
@@ -614,7 +658,7 @@ export function LeadDetailDialog({
               lead={lead}
               onPassed={(next, toName) => {
                 setLead(next);
-                toast.success("Lead passed on", `${toName} has it now. It is kept in Passed on.`);
+                toast.success("Lead transferred", `${toName} has it now and was notified.`);
                 onChanged();
               }}
             />

@@ -334,7 +334,7 @@ def list_audit(
     items = []
     for row in rows:
         item = AuditEventOut.model_validate(row)
-        item.actor_name = names.get(row.actor_user_id)
+        item.actor_name = names.get(row.actor_user_id) or row.actor_name
         items.append(item)
 
     return Page[AuditEventOut](items=items, total=total, page=page, page_size=page_size)

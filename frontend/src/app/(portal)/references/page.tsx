@@ -36,7 +36,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/cn";
 import { formatDate, formatNumber } from "@/lib/format";
-import { REFERENCE_STATUS_LABELS, isAdmin, isCompletedReference } from "@/lib/roles";
+import { REFERENCE_STATUS_LABELS, isAdmin, isCompletedReference, isLeadership } from "@/lib/roles";
 import { useAsync, useDebounced } from "@/lib/useAsync";
 import type { ReferenceStats } from "@/types/api";
 
@@ -97,7 +97,11 @@ function ReferencesInner() {
   const params = useSearchParams();
   const tab = params.get("tab") ?? "customers";
   const statusFilter = params.get("status") ?? "";
-  const ownerFilter = params.get("owner") ?? "";
+  // A manager sees the whole team's accounts under Ready to ask; My tasks is
+  // the same list narrowed to the accounts they own themselves.
+  const hasTeam = isLeadership(user?.role);
+  const mine = hasTeam && tab === "mine";
+  const ownerFilter = mine ? (user?.id ?? "") : (params.get("owner") ?? "");
   const outcomeFilter = params.get("outcome") ?? "";
 
   const [search, setSearch] = useState("");
@@ -154,6 +158,15 @@ function ReferencesInner() {
     // parameter, so including it refetched identical data every time somebody
     // switched tabs. `nonce` still forces a refresh after a recorded ask.
     [statusFilter, ownerFilter, debounced, nonce],
+  );
+  // The My tasks count, whatever tab is open: the caller's own accounts still
+  // owing an answer.
+  const myOpen = useAsync(
+    (signal) =>
+      hasTeam && user
+        ? api.references.accounts({ open_only: true, owner_id: user.id }, signal)
+        : Promise.resolve(null),
+    [hasTeam, user?.id, nonce],
   );
   const references = useAsync(
     (signal) =>
@@ -317,12 +330,15 @@ function ReferencesInner() {
             key: "customers",
             // Counts what the tab LISTS by default: accounts still owing an
             // answer (not asked + "later"), never the completed ones.
-            label: "Ready to ask",
+            label: hasTeam ? "Ready to ask (team)" : "Ready to ask",
             count:
               stats.data == null
                 ? undefined
                 : stats.data.not_asked + stats.data.references_pending,
           },
+          ...(hasTeam
+            ? [{ key: "mine", label: "My tasks", count: myOpen.data?.length }]
+            : []),
           {
             key: "referred",
             label: "Referred people",
@@ -342,7 +358,7 @@ function ReferencesInner() {
       />
 
       {/* --------------------------------------------------- accounts */}
-      {tab === "customers" ? (
+      {tab === "customers" || mine ? (
         <Card className="overflow-hidden">
           <FilterBar
             search={search}
@@ -363,17 +379,22 @@ function ReferencesInner() {
                 })),
                 onChange: (value) => setParam("status", value),
               },
-              {
-                key: "owner",
-                label: "Owner",
-                value: ownerFilter,
-                anyLabel: "Anyone",
-                options: owners.map(([id, name]) => ({
-                  value: id,
-                  label: name,
-                })),
-                onChange: (value) => setParam("owner", value),
-              },
+              // My tasks is already one owner: you.
+              ...(mine
+                ? []
+                : [
+                    {
+                      key: "owner",
+                      label: "Owner",
+                      value: ownerFilter,
+                      anyLabel: "Anyone",
+                      options: owners.map(([id, name]) => ({
+                        value: id,
+                        label: name,
+                      })),
+                      onChange: (value: string) => setParam("owner", value),
+                    },
+                  ]),
             ]}
           />
 
@@ -381,6 +402,12 @@ function ReferencesInner() {
             <ErrorState error={accounts.error} onRetry={accounts.reload} />
           ) : accounts.loading && !accounts.data ? (
             <TableSkeleton rows={8} columns={5} />
+          ) : mine && visibleAccounts.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title={term ? "None of your accounts match" : "Nothing on your own list"}
+              description="Accounts you own that still need an ask appear here. Your team's are under Ready to ask."
+            />
           ) : visibleAccounts.length === 0 ? (
             /* Three different situations, and only one of them is a problem.
                A bare "no accounts" hid the difference between "the sheet has

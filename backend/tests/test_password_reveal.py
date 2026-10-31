@@ -12,7 +12,14 @@ from app.core import password_vault
 from app.core.config import Settings
 from app.models.org import User
 from app.models.system import AuditEvent
-from tests.conftest import SEED_PASSWORD, new_email, sign_in, super_admin_headers
+from tests.conftest import (
+    SEED_PASSWORD,
+    auth,
+    new_email,
+    session_secret,
+    sign_in,
+    super_admin_headers,
+)
 
 
 def reveal(client, headers, user_id):
@@ -53,6 +60,41 @@ def test_reveal_follows_every_way_a_password_changes(client, users, db) -> None:
     )
     assert own.status_code == 200, own.text
     assert reveal(client, super_admin_headers(client), muskan.id).json()["password"] == "my own"
+
+
+def test_a_set_password_replaces_the_old_one_at_once(client, users) -> None:
+    """Set A -> A signs in; set B -> A refused, B signs in, again after sign-out."""
+    headers = super_admin_headers(client)
+    target = users["Kevin"]
+
+    def login(password):
+        return client.post("/api/auth/login", json={"identifier": target.email, "password": password})
+
+    for password in ("Granite-Owl-5531", "Harbor-Lynx-7742"):
+        reset = client.post(
+            f"/api/users/{target.id}/reset-password",
+            headers=headers,
+            json={"new_password": password, "must_change": False},
+        )
+        assert reset.status_code == 200, reset.text
+        assert reset.json()["message"].startswith("Saved.")
+        assert reveal(client, headers, target.id).json() == {"password": password}
+
+    assert login("Granite-Owl-5531").status_code == 401
+    first = login("Harbor-Lynx-7742")
+    assert first.status_code == 200, first.text
+    assert client.post("/api/auth/logout", headers=auth(session_secret(first))).status_code in (200, 204)
+    assert login("Harbor-Lynx-7742").status_code == 200
+
+
+def test_success_is_never_reported_for_a_password_that_did_not_save(db, users) -> None:
+    import pytest
+
+    from app.services.users import confirm_password_saved
+
+    target = users["Kevin"]
+    with pytest.raises(RuntimeError):
+        confirm_password_saved(db, target.id, "not-what-was-stored")
 
 
 def test_stored_copy_is_encrypted_not_plaintext(client, users, db) -> None:

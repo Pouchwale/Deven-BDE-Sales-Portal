@@ -61,7 +61,8 @@ export function ReportsTable({
                 <TH>Team</TH>
                 <TH align="right">Open leads</TH>
                 <TH align="right">Converted</TH>
-                <TH align="right">References</TH>
+                <TH align="right">References assigned</TH>
+                <TH align="right">References taken</TH>
                 <TH align="right">Score</TH>
                 <TH align="right">Follow-ups due</TH>
                 <TH align="right">Last activity</TH>
@@ -110,12 +111,26 @@ export function ReportsTable({
                       <span className="text-subtle">0</span>
                     )}
                   </TD>
+                  {/* Their own won accounts that may be asked for a reference -
+                      the same book the score is measured on. */}
                   <TD
-                    data-label="References"
+                    data-label="References assigned"
                     align="right"
-                    className={cn(row.references_taken === 0 && "text-subtle")}
+                    className={cn(row.eligible_accounts === 0 && "text-subtle")}
                   >
-                    {formatNumber(row.references_taken)}
+                    {formatNumber(row.eligible_accounts)}
+                  </TD>
+                  {/* Taken = the account answered: gave a reference OR said
+                      it had none (owner's rule, 2026-10-31). Counted per
+                      account on the assigned book, so assigned, taken and
+                      score always agree. */}
+                  <TD
+                    data-label="References taken"
+                    align="right"
+                    className={cn(row.references_on_eligible === 0 && "text-subtle")}
+                    title="Gave a reference or declined"
+                  >
+                    {formatNumber(row.references_on_eligible)}
                   </TD>
                   {/* -(eligible accounts still owing a reference) %, so 7 of
                       10 asked reads -30%. Nothing eligible reads "—" rather

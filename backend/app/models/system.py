@@ -62,6 +62,9 @@ class AuditEvent(Base):
     actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID, ForeignKey("users.id", ondelete="SET NULL")
     )
+    #: Written when the actor's account is deleted (0020), so the row still
+    #: says who acted once actor_user_id has gone NULL.
+    actor_name: Mapped[str | None] = mapped_column(String(120))
     action: Mapped[str] = mapped_column(String(60), nullable=False)
     entity_type: Mapped[str | None] = mapped_column(String(30))
     entity_id: Mapped[uuid.UUID | None] = mapped_column(GUID)

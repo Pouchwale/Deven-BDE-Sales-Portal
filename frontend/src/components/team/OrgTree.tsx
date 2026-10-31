@@ -73,7 +73,9 @@ function OrgTreeNode({
           aria-label={hasReports ? (expanded ? "Collapse" : "Expand") : undefined}
           aria-expanded={hasReports ? expanded : undefined}
           className={cn(
-            "shrink-0 rounded-md p-0.5 text-subtle transition-all duration-200",
+            // A 36px touch target on phones; the negative margin keeps the row
+            // exactly where the 20px desktop button puts it.
+            "-m-2 shrink-0 rounded-md p-2.5 text-subtle transition-all duration-200 sm:m-0 sm:p-0.5",
             hasReports
               ? "hover:bg-surface-hover hover:text-content"
               : "pointer-events-none opacity-0",

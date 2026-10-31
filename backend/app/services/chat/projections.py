@@ -234,10 +234,16 @@ def team_member_row(row: dict) -> dict:
         "role": row["role"],
         "team": row.get("team_name"),
         "is_active": row.get("is_active", True),
+        # "References assigned": their own accounts that may be asked.
+        "references_assigned": row.get("eligible_accounts", 0),
         "open_leads": row["open_leads"],
         "converted": row.get("converted", 0),
         "follow_ups_due": row["followups_due"],
-        "references_taken": row["references_taken"],
+        # What the dashboard's team table shows as "References taken": their
+        # assigned accounts that answered - gave one OR declined.
+        "references_taken": row["references_on_eligible"],
+        # Referrals actually received (a "yes"), for "who brought people in".
+        "referrals_received": row["references_taken"],
         # Lead activity, not SAP. `customers` and `last_invoice_date` used to be
         # here; the Team payload no longer carries them, so they read as
         # "everyone has 0 customers and has never invoiced" - which the model

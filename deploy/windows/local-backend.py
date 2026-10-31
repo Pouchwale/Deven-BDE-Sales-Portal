@@ -4,7 +4,9 @@ Run by the scheduled task from register-local-backend.ps1, under pythonw (no
 window). It starts and keeps running:
 
 * the backend on http://127.0.0.1:8000 (pages and /api), restarted whenever
-  backend code changes. uvicorn's own --reload restarts on Windows by sending
+  backend code changes, and started again within seconds if it stops for
+  any other reason (before, it stayed down until the next code change, and
+  every page said "Request failed with status 500"). uvicorn's own --reload restarts on Windows by sending
   Ctrl+C to its console, which a hidden background task either does not
   deliver - the change is seen, the old code keeps running - or delivers to
   the task's own process too and the backend dies. This stops and starts the
@@ -35,6 +37,7 @@ NEXT = FRONTEND / "node_modules" / "next" / "dist" / "bin" / "next"
 # A website server that keeps failing (say, port 3000 taken) is retried at
 # most this often, not in a tight loop.
 FRONTEND_RETRY_SECONDS = 60
+BACKEND_RETRY_SECONDS = 10
 
 
 def start(log):
@@ -65,13 +68,19 @@ frontend_log = Path(sys.argv[2]) if len(sys.argv) > 2 else backend_log.with_name
 with open(backend_log, "w", encoding="utf-8", buffering=1) as log, \
         open(frontend_log, "w", encoding="utf-8", buffering=1) as flog:
     server = start(log)
+    server_started = time.monotonic()
     frontend = start_frontend(flog)
     frontend_started = time.monotonic()
-    # Wakes on a code change, or every 30 s to check the website server.
-    # A backend crash (say, a syntax error mid-edit) leaves it down until the
-    # next save, which restarts it - the same as uvicorn --reload.
+    # Wakes on a code change, or every 5 s to check that both servers run.
     for changes in watch(BACKEND / "app", watch_filter=PythonFilter(),
-                         rust_timeout=30_000, yield_on_timeout=True):
+                         rust_timeout=5_000, yield_on_timeout=True):
+        # A backend that stops is started again. One that stops straight
+        # away (say, a syntax error mid-edit) is retried at most every 10 s;
+        # the next save restarts it at once either way.
+        if server.poll() is not None and time.monotonic() - server_started >= BACKEND_RETRY_SECONDS:
+            log.write(f"--- backend stopped (exit {server.returncode}); starting it again\n")
+            server = start(log)
+            server_started = time.monotonic()
         if (frontend is not None and frontend.poll() is not None
                 and time.monotonic() - frontend_started >= FRONTEND_RETRY_SECONDS):
             flog.write(f"--- website server stopped (exit {frontend.returncode}); starting it again\n")
@@ -84,3 +93,4 @@ with open(backend_log, "w", encoding="utf-8", buffering=1) as log, \
         server.terminate()
         server.wait()
         server = start(log)
+        server_started = time.monotonic()

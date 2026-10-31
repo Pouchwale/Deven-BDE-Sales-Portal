@@ -89,7 +89,13 @@ def _scope_sentence(actor: User, scope) -> str:
     if actor.role == Role.MANAGER:
         return (
             "They can see their own work and the work of everyone below them in "
-            "the reporting chain - nothing sideways and nothing above."
+            "the reporting chain - nothing sideways and nothing above. They also "
+            "carry accounts of their own: their 'My tasks' (the My tasks tab on "
+            "Reference Tracking and the My tasks tile on the dashboard) is the "
+            "accounts they own personally that still need a reference ask. When "
+            "they say 'my tasks', 'my accounts' or 'my list', answer about those "
+            "(list_reference_accounts with mine=true, open_only=true), not the "
+            "team's; say which one you are giving when it could be either."
         )
     return (
         "They can see only their own work: their own leads, their own accounts, "
@@ -173,6 +179,7 @@ def suggested_prompts(actor: User) -> list[dict[str, str]]:
             {"text": "What is overdue across my team?", "topic": "leads"},
             {"text": "Which customers are still owed feedback?", "topic": "feedback"},
             {"text": "Which department needs attention?", "topic": "feedback"},
+            {"text": "What are my tasks?", "topic": "references"},
             {"text": "Which accounts still need a reference?", "topic": "references"},
             {"text": "Show my team's converted leads", "topic": "leads"},
         ]

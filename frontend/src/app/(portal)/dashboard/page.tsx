@@ -6,6 +6,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Inbox,
+  ListTodo,
   Percent,
   ReceiptText,
   Target,
@@ -130,6 +131,23 @@ export default function DashboardPage() {
               icon={Building2}
               href="/references"
             />
+            {/* A manager's own list, separate from the team's: the same
+                accounts as the My tasks tab on Reference Tracking. */}
+            {data.shape === "MANAGER" && data.my_reference ? (
+              <StatTile
+                index={1}
+                label="My tasks"
+                value={data.my_reference.open_tasks}
+                hint={
+                  data.my_reference.open_tasks > 0
+                    ? "Your own accounts still to ask — open the list"
+                    : "Nothing on your own list"
+                }
+                icon={ListTodo}
+                accent={data.my_reference.open_tasks > 0 ? "warning" : "neutral"}
+                href="/references?tab=mine"
+              />
+            ) : null}
             {/*
               Done over total, not a bare number.
 

@@ -814,7 +814,7 @@ Windows server — behind an HTTPS reverse proxy.
 
 | File | Purpose |
 |---|---|
-| `deploy/Caddyfile.example` | TLS (automatic Let's Encrypt), HTTP→HTTPS, `/api/*` straight to uvicorn with `flush_interval -1` (SSE), 15 MB body limit, JSON access log in `logs\caddy` beside the repository |
+| `deploy/Caddyfile.example` | TLS (automatic Let's Encrypt), HTTP→HTTPS, `/api/*` straight to uvicorn with `flush_interval -1` (SSE), 15 MB body limit, JSON access log in `D:\GP3\logs\caddy` |
 | `deploy/env/backend.production.env.example` | every production setting → copy to `backend\.env` |
 | `deploy/env/frontend.production.env.example` | `BACKEND_INTERNAL_URL` → `frontend\.env.production.local` |
 | `deploy/windows/start-backend.ps1` | checks `ENV=production`, runs `migrate check` (aborts if pending), starts uvicorn |
@@ -918,7 +918,7 @@ Two databases, never the same one:
 |---|---|---|
 | Database | PostgreSQL on `localhost` (`DATABASE_URL` in `backend/.env`) | Render PostgreSQL (`DATABASE_URL` in the Render dashboard) |
 | `ENV` | `development`, set explicitly in `backend/.env` | `production`, set in the Render dashboard |
-| Accounts | the `-dev` accounts + whatever a refresh copied | the real people — the source of truth |
+| Accounts | the real accounts (same passwords as production) | the real people — the source of truth |
 | Data flow | **in** only, by a manual refresh | backed up nightly to this PC; never written by local tools |
 
 `GET /health` says which one answered: `"environment"` and `"database"`
@@ -933,19 +933,15 @@ against a database on this machine. `migrate upgrade`, `bootstrap_admin` and
 values only ever *create* the first Super Admin; they never reset an existing
 account (on Render they still can — that is the lockout recovery).
 
-**Development accounts.** `superadmin-dev`, `shail-dev`, `navya-dev`,
-`parth-dev` — one per role, password `DEV_ACCOUNT_PASSWORD` in `backend/.env`
-(this PC only, never in the repo). Local work never needs a production
-password.
+**No test accounts.** Local testing signs in with the real accounts. The old
+`-dev` test sign-ins (`superadmin-dev`, `shail-dev`, `navya-dev`, `parth-dev`)
+were removed on 2026-10-30 and are never re-created; to clear them from an
+older local copy:
 
 ```powershell
 cd backend
-.venv\Scripts\python.exe -m app.seeds.dev_accounts           # create missing ones
-.venv\Scripts\python.exe -m app.seeds.dev_accounts --reset   # back to the known password
+.venv\Scripts\python.exe -m app.seeds.dev_accounts --remove
 ```
-
-A password changed while testing stays changed — across restarts and re-runs —
-until `--reset`.
 
 **Your own accounts locally.** The local database is a copy, so its accounts
 carry the passwords they had when copied — not the ones you use now. To sign
@@ -964,20 +960,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\set-production
 Stored encrypted (Windows DPAPI, this user only) in
 `%LOCALAPPDATA%\BDEPortal\`, outside the repo; never in `backend\.env`.
 
-**Where backups and logs go.** `backups\` and `logs\` sit *beside* the
-repository, in the project folder that holds it (on this PC
-`D:\BDE and SALES PORTAL`, formerly `D:\GP3`) — never inside it. The scripts
-work that out from where they are, so renaming or moving the project folder
-needs no edit; only the scheduled tasks hold full paths, so re-run
-`deploy\windows\register-local-backend.ps1` and
-`deploy\backup\register-backup-task.ps1` afterwards (not as administrator —
-an elevated run leaves the tasks changeable only by administrators).
-
 **Production backup — nightly.** `deploy\backup\backup-production.ps1` dumps
-the *Render* database (read only) to `backups\production\production-<time>.dump`
+the *Render* database (read only) to `D:\GP3\backups\production\production-<time>.dump`
 with a `.sha256`, proves the archive readable, keeps 14 daily / 8 Sunday /
 6 monthly. Scheduled by `register-backup-task.ps1` as *BDE Portal - production
-backup* at 02:00. Log: `backups\production\backup.log`. Run by hand
+backup* at 02:00. Log: `D:\GP3\backups\production\backup.log`. Run by hand
 before any risky deploy:
 
 ```powershell
@@ -997,16 +984,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-rend
 
 It refuses unless `backend\.env` says `ENV=development` with a local
 `DATABASE_URL` and the credential is *not* local; backs up local first
-(`backups\local-dev\local-before-refresh-<time>.dump`); dumps production
+(`D:\GP3\backups\local-dev\local-before-refresh-<time>.dump`); dumps production
 read-only (also kept as a production backup); restores in one transaction;
 verifies every row count and every account's password hash against
 production — and puts local back automatically if anything after the restore
-fails; then migrates, keeps the copied passwords, and re-creates the `-dev`
-accounts. `-FromBackup <file>` refreshes from a production dump on disk
+fails; then migrates and keeps the copied passwords.
+`-FromBackup <file>` refreshes from a production dump on disk
 without contacting Render.
 
 **Local backup — on demand.** `deploy\backup\backup-local.ps1` dumps the local
-development database to `backups\local-dev` (refuses a non-local URL).
+development database to `D:\GP3\backups\local-dev` (refuses a non-local URL).
 
 **Schema changes** go through migrations, never by hand: add
 `backend/app/db/sql/NNNN_name.sql` → `python -m app.db.migrate upgrade`
@@ -1035,9 +1022,9 @@ database. WARN means every table restored but counts moved since the dump —
 expected on a busy day.
 
 **Off-machine copy.** Backups on the same disk do not survive a disk failure,
-theft or ransomware. Copy `backups\production` somewhere else at least
+theft or ransomware. Copy `D:\GP3\backups\production` somewhere else at least
 daily — e.g. a OneDrive/SharePoint folder of a *different* account, an
-external disk rotated weekly, or a NAS (`robocopy "D:\BDE and SALES PORTAL\backups\production"
+external disk rotated weekly, or a NAS (`robocopy D:\GP3\backups\production
 \\nas\backups\bde-portal *.dump *.sha256 /XO`). The dumps contain customer
 personal data: keep the destination access-controlled.
 
@@ -1055,9 +1042,9 @@ Stop-Service BDEPortalCaddy, BDEPortalFrontend, BDEPortalBackend   # nobody writ
 # 1. keep what is there now, even if broken
 powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\backup-local.ps1
 # 2. pick the dump and verify it
-Get-FileHash "D:\BDE and SALES PORTAL\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump" -Algorithm SHA256   # compare with .sha256
+Get-FileHash D:\GP3\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump -Algorithm SHA256   # compare with .sha256
 # 3. restore over the live database as its owner (asks for the bde_portal password)
-& "$bin\pg_restore.exe" --clean --if-exists --no-owner --role=bde_portal -h localhost -U bde_portal -d bde_portal "D:\BDE and SALES PORTAL\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump"
+& "$bin\pg_restore.exe" --clean --if-exists --no-owner --role=bde_portal -h localhost -U bde_portal -d bde_portal D:\GP3\backups\local-dev\bde_portal-YYYYMMDD-HHmmss.dump
 # 4. confirm the schema matches the code, then start again
 backend\.venv\Scripts\python.exe -m app.db.migrate check
 Start-Service BDEPortalBackend, BDEPortalFrontend, BDEPortalCaddy

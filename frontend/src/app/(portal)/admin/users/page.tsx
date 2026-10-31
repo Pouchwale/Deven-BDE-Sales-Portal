@@ -11,8 +11,6 @@ import {
   Unlock,
   UserPlus,
   Trash2,
-  UserX,
-  Undo2,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
@@ -27,10 +25,9 @@ import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/Feedback"
 import { Input, Switch } from "@/components/ui/Form";
 import { Pagination } from "@/components/ui/Pagination";
 import { TBody, TD, TH, THead, TR, Table, TableWrap } from "@/components/ui/Table";
-import { api, errorMessage } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate, formatDateTime, formatRelative } from "@/lib/format";
-import { useToast } from "@/lib/toast";
 import { useAsync, useDebounced } from "@/lib/useAsync";
 import type { UserDetail } from "@/types/api";
 import { isSuperAdmin, withHonorific } from "@/lib/roles";
@@ -50,9 +47,6 @@ const ResetPasswordDialog = dynamic(
   () => ACTION_DIALOGS().then((m) => m.ResetPasswordDialog),
   { ssr: false },
 );
-const DeactivateDialog = dynamic(() => ACTION_DIALOGS().then((m) => m.DeactivateDialog), {
-  ssr: false,
-});
 const UserActivityDialog = dynamic(
   () => ACTION_DIALOGS().then((m) => m.UserActivityDialog),
   { ssr: false },
@@ -67,7 +61,6 @@ const UserFormDialog = dynamic(
 
 export default function AdminUsersPage() {
   const { user: actor } = useAuth();
-  const toast = useToast();
 
   const [search, setSearch] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -78,7 +71,6 @@ export default function AdminUsersPage() {
   const [resetting, setResetting] = useState<UserDetail | null>(null);
   const [deleting, setDeleting] = useState<UserDetail | null>(null);
   const [viewing, setViewing] = useState<UserDetail | null>(null);
-  const [deactivating, setDeactivating] = useState<UserDetail | null>(null);
   const [auditing, setAuditing] = useState<UserDetail | null>(null);
   const [unlocking, setUnlocking] = useState<UserDetail | null>(null);
 
@@ -110,18 +102,9 @@ export default function AdminUsersPage() {
     [debouncedSearch, includeInactive, page],
   );
 
-  async function reactivate(person: UserDetail) {
-    try {
-      await api.users.reactivate(person.id);
-      toast.success("Reactivated", `${person.name} can sign in again.`);
-      listing.reload();
-    } catch (cause) {
-      toast.error("Could not reactivate", errorMessage(cause));
-    }
-  }
-
-  // How many of the rows on this page are deactivated. Without this the
-  // toggle can reveal one row at the bottom of twenty and look inert.
+  // How many of the rows on this page are deactivated (accounts from before
+  // deactivation was removed - they can only be deleted now). Without this
+  // the toggle can reveal one row at the bottom of twenty and look inert.
   // name -> honorific, for the people on this page. The listing returns a
   // manager's NAME but not their honorific, and one lookup map beats a
   // request per row.
@@ -313,20 +296,6 @@ export default function AdminUsersPage() {
                         )}
                       </TD>
                       <TD data-actions align="right">
-                        {/* Reactivating is the one thing you come to a
-                            deactivated row to do. Burying it in the overflow
-                            menu made it effectively invisible. */}
-                        {!person.is_active && person.can_act_on ? (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            className="mr-1.5"
-                            onClick={() => reactivate(person)}
-                          >
-                            <Undo2 className="size-3.5" aria-hidden />
-                            Activate
-                          </Button>
-                        ) : null}
                         <RowActions
                           person={person}
                           onEdit={() => setEditing(person)}
@@ -336,8 +305,6 @@ export default function AdminUsersPage() {
                               ? () => setDeleting(person)
                               : undefined
                           }
-                          onDeactivate={() => setDeactivating(person)}
-                          onReactivate={() => reactivate(person)}
                           onActivity={() => setAuditing(person)}
                           onUnlock={() => setUnlocking(person)}
                         />
@@ -371,8 +338,11 @@ export default function AdminUsersPage() {
           onClose={() => setViewing(null)}
           onEdit={() => { setEditing(viewing); setViewing(null); }}
           onSetPassword={() => { setResetting(viewing); setViewing(null); }}
-          onDeactivate={() => { setDeactivating(viewing); setViewing(null); }}
-          onReactivate={() => { const target = viewing; setViewing(null); if (target) void reactivate(target); }}
+          onDelete={
+            isSuperAdmin(actor?.role)
+              ? () => { setDeleting(viewing); setViewing(null); }
+              : undefined
+          }
         />
       ) : null}
 
@@ -400,7 +370,6 @@ export default function AdminUsersPage() {
           open
           onClose={() => setDeleting(null)}
           onDone={listing.reload}
-          onDeactivateInstead={() => setDeactivating(deleting)}
           user={deleting}
         />
       ) : null}
@@ -412,15 +381,6 @@ export default function AdminUsersPage() {
           onClose={() => setResetting(null)}
           onDone={listing.reload}
           user={resetting}
-        />
-      ) : null}
-      {deactivating ? (
-        <DeactivateDialog
-          key={`deactivate-${deactivating.id}`}
-          open
-          onClose={() => setDeactivating(null)}
-          onDone={listing.reload}
-          user={deactivating}
         />
       ) : null}
       {auditing ? (
@@ -453,8 +413,6 @@ function RowActions({
   person,
   onEdit,
   onReset,
-  onDeactivate,
-  onReactivate,
   onActivity,
   onUnlock,
   onDelete,
@@ -462,8 +420,6 @@ function RowActions({
   person: UserDetail;
   onEdit: () => void;
   onReset: () => void;
-  onDeactivate: () => void;
-  onReactivate: () => void;
   onActivity: () => void;
   onUnlock: () => void;
   /** Omitted for anyone who is not a Super Admin, so the menu never offers
@@ -541,26 +497,6 @@ function RowActions({
               }}
             />
           ) : null}
-          {person.is_active ? (
-            <MenuItem
-              icon={UserX}
-              label="Deactivate"
-              destructive
-              onClick={() => {
-                setOpen(false);
-                onDeactivate();
-              }}
-            />
-          ) : (
-            <MenuItem
-              icon={Undo2}
-              label="Activate"
-              onClick={() => {
-                setOpen(false);
-                onReactivate();
-              }}
-            />
-          )}
           <MenuItem
             icon={History}
             label="View activity"
@@ -572,7 +508,7 @@ function RowActions({
           {onDelete ? (
             <MenuItem
               icon={Trash2}
-              label="Delete permanently"
+              label="Delete"
               destructive
               onClick={() => {
                 setOpen(false);

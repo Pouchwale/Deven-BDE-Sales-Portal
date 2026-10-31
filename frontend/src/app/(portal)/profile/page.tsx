@@ -14,7 +14,7 @@ import { RoleBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { InlineError } from "@/components/ui/Feedback";
-import { Field, Input } from "@/components/ui/Form";
+import { Field, Input, PasswordInput } from "@/components/ui/Form";
 import { api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
@@ -163,9 +163,8 @@ export default function ProfilePage() {
             <CardBody>
               <form onSubmit={changePassword} className="space-y-4" noValidate>
                 <Field label="Current password" htmlFor="current-password" required>
-                  <Input
+                  <PasswordInput
                     id="current-password"
-                    type="password"
                     autoComplete="current-password"
                     required
                     icon={<Lock className="size-4" />}
@@ -182,9 +181,8 @@ export default function ProfilePage() {
                     error={nextProblem}
                     hint={PASSWORD_POLICY_HINT.replace("the person's", "your")}
                   >
-                    <Input
+                    <PasswordInput
                       id="new-password"
-                      type="password"
                       autoComplete="new-password"
                       required
                       minLength={PASSWORD_MIN_LENGTH}
@@ -199,9 +197,8 @@ export default function ProfilePage() {
                     required
                     error={confirm.length > 0 && next !== confirm ? "These do not match." : null}
                   >
-                    <Input
+                    <PasswordInput
                       id="confirm-password"
-                      type="password"
                       autoComplete="new-password"
                       required
                       value={confirm}

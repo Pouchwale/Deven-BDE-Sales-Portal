@@ -73,7 +73,7 @@ export function PasswordReveal({
           onClick={toggle}
           aria-label="Hide"
           title="Hide"
-          className="grid size-6 shrink-0 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content"
+          className="-m-1.5 grid size-9 shrink-0 sm:m-0 sm:size-6 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content"
         >
           <EyeOff className="size-3.5" aria-hidden />
         </button>
@@ -104,7 +104,8 @@ export function PasswordReveal({
         disabled={state === "loading"}
         aria-label={open ? "Hide password" : "Show password"}
         title={open ? "Hide password" : "Show password"}
-        className="grid size-6 shrink-0 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content disabled:opacity-60"
+        // 36px to tap on a phone, 24px with a mouse; the negative margin keeps the line height.
+        className="-m-1.5 grid size-9 shrink-0 sm:m-0 sm:size-6 place-items-center rounded-md text-subtle transition-colors hover:bg-surface-hover hover:text-content disabled:opacity-60"
       >
         {state === "loading" ? (
           <Spinner className="size-3.5" />

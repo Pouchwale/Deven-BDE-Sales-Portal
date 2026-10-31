@@ -43,6 +43,8 @@ class PersonalReferenceScore(BaseModel):
     eligible_accounts: int = 0
     references_taken: int = 0
     reference_score: float = 0.0
+    #: Their own accounts still to ask (not asked, or said "later").
+    open_tasks: int = 0
 
 
 class LeadKpis(BaseModel):

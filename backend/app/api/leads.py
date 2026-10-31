@@ -385,7 +385,7 @@ def _detail(db: Session, lead, actor=None) -> LeadDetail:
     timeline: list[LeadActivityOut] = []
     for activity in sorted(lead.activities, key=lambda a: a.created_at, reverse=True):
         entry = LeadActivityOut.model_validate(activity)
-        entry.actor_name = actors.get(activity.actor_user_id)
+        entry.actor_name = actors.get(activity.actor_user_id) or activity.actor_name
         # Always false: nothing on a lead can be undone any more. The field
         # stays so the response shape does not change under clients that are
         # still reading it, and so the customer timeline - which KEEPS its

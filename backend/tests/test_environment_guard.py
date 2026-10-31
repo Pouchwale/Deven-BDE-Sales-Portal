@@ -9,7 +9,7 @@ explicit production configuration.
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import Settings
 from app.core.constants import Role
@@ -112,45 +112,28 @@ def test_the_seed_refuses_outside_local_development(monkeypatch) -> None:
 
 
 # ------------------------------------------------------- dev accounts
-def test_dev_accounts_cover_every_role_and_survive_a_rerun(db) -> None:
-    from app.seeds import dev_accounts
-
-    created = dev_accounts.ensure(db, "Dev Pass 123")
-    db.commit()
-    assert set(created.values()) == {"created"}
-
-    users = {
-        u.username: u
-        for u in db.execute(select(User).where(User.username.like("%-dev"))).scalars()
-    }
-    assert {u.role for u in users.values()} == {
-        Role.SUPER_ADMIN, Role.ADMIN, Role.MANAGER, Role.BDE,
-    }
-    assert users["parth-dev"].manager_id == users["navya-dev"].id
-    assert verify_password("Dev Pass 123", users["navya-dev"].hashed_password)
-
-    # A password changed while testing is NOT undone by a re-run...
+def test_remove_deletes_only_the_old_test_accounts(db) -> None:
     from app.core import password_vault
-
-    password_vault.set_password(users["navya-dev"], "Changed Locally 9")
-    db.commit()
-    assert set(dev_accounts.ensure(db, "Dev Pass 123").values()) == {"kept"}
-    assert verify_password("Changed Locally 9", users["navya-dev"].hashed_password)
-
-    # ...only by an explicit --reset.
-    assert dev_accounts.ensure(db, "Dev Pass 123", reset=True)["navya-dev"] == "reset"
-    assert verify_password("Dev Pass 123", users["navya-dev"].hashed_password)
-
-
-def test_dev_accounts_sign_in(client, db) -> None:
     from app.seeds import dev_accounts
 
-    dev_accounts.ensure(db, "Dev Pass 123")
+    lead = User(name="Navya (dev)", email="navya-dev@example.com", username="navya-dev",
+                role=str(Role.MANAGER), hashed_password="", is_active=True)
+    report = User(name="Parth (dev)", email="parth-dev@example.com", username="parth-dev",
+                  role=str(Role.BDE), hashed_password="", is_active=True)
+    for user in (lead, report):
+        password_vault.set_password(user, "Dev Pass 123")
+        db.add(user)
+    db.flush()
+    report.manager_id = lead.id
     db.commit()
-    response = client.post(
-        "/api/auth/login", json={"identifier": "navya-dev", "password": "Dev Pass 123"}
-    )
-    assert response.status_code == 200, response.text
+    real_before = db.scalar(select(func.count()).select_from(User).where(~User.username.like("%-dev")))
+
+    assert dev_accounts.remove_dev_accounts(db) == ["navya-dev", "parth-dev"]
+    db.commit()
+    assert db.scalar(select(func.count()).select_from(User).where(User.username.like("%-dev"))) == 0
+    assert db.scalar(select(func.count()).select_from(User)) == real_before
+    # A second run finds nothing to do.
+    assert dev_accounts.remove_dev_accounts(db) == []
 
 
 # ---------------------------------- local .env never resets a copied admin
@@ -188,22 +171,15 @@ def test_a_blank_env_is_the_same_as_a_missing_one(monkeypatch) -> None:
     assert not config.is_local_development
 
 
-def test_local_passwords_cover_real_accounts_only(client, db) -> None:
+def test_local_passwords_give_real_accounts_a_known_password(client, db) -> None:
     from app.seeds import dev_accounts
 
-    dev_accounts.ensure(db, "Dev Pass 123")
-    db.commit()
     changed = dev_accounts.set_local_passwords(db, "{username}-Local9")
     db.commit()
-    assert changed and not any(name.endswith("-dev") for name in changed)
+    assert changed
 
     name = changed[0]
     signed_in = client.post(
         "/api/auth/login", json={"identifier": name, "password": f"{name}-Local9"}
     )
     assert signed_in.status_code == 200, signed_in.text
-    # The dev accounts keep their own password.
-    dev = client.post(
-        "/api/auth/login", json={"identifier": "navya-dev", "password": "Dev Pass 123"}
-    )
-    assert dev.status_code == 200, dev.text

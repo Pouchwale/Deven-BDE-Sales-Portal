@@ -4,26 +4,24 @@
   snapshot of production (Render). Production is only read.
 
 .DESCRIPTION
-  Local development has its own database and its own accounts (the "-dev"
-  accounts, see backend\app\seeds\dev_accounts.py). Use this only when you
-  want current production data locally - it REPLACES local data, including
-  any test data you made. It never runs on a schedule.
+  Local development has its own database, signed in to with the real
+  accounts. Use this only when you want current production data locally -
+  it REPLACES local data, including any test data you made. It never runs
+  on a schedule.
 
   1. Checks the target: backend\.env must say ENV=development and its
      DATABASE_URL must be on this machine. The source must NOT be. Anything
      ambiguous stops the run before anything is changed.
-  2. Backs up the local database  -> backups\local-dev\local-before-refresh-<time>.dump
-  3. Dumps production (read only) -> backups\production\production-<time>.dump
-     (backups\ is beside the repository: D:\BDE and SALES PORTAL\backups)
+  2. Backs up the local database  -> D:\GP3\backups\local-dev\local-before-refresh-<time>.dump
+  3. Dumps production (read only) -> D:\GP3\backups\production\production-<time>.dump
      (or uses -FromBackup <file> and does not connect to production at all)
   4. Restores into the local database in ONE transaction - a failure leaves
      it untouched.
   5. Verifies: every table's row count and every account's password hash
      match production; an active Super Admin exists. On failure, the local
      backup from step 2 is put back automatically.
-  6. Applies this checkout's migrations, keeps the copied passwords (the
-     local SUPER_ADMIN_* values never reset them), and re-creates the "-dev"
-     accounts, which production does not have.
+  6. Applies this checkout's migrations and keeps the copied passwords (the
+     local SUPER_ADMIN_* values never reset them).
 
   Production credential: set-production-credential.ps1 (once).
 
@@ -32,15 +30,14 @@
 
 .EXAMPLE
   # From a production backup already on disk, without connecting to Render:
-  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-render.ps1 -FromBackup "D:\BDE and SALES PORTAL\backups\production\production-20261002-020000.dump"
+  powershell -NoProfile -ExecutionPolicy Bypass -File deploy\backup\copy-from-render.ps1 -FromBackup D:\GP3\backups\production\production-20261002-020000.dump
 #>
 [CmdletBinding()]
 param(
   [string]$FromBackup = "",
   [string]$EnvFile = "",
   [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin",
-  # Blank = backups\ beside the repository (see backup-production.ps1).
-  [string]$BackupRoot = "",
+  [string]$BackupRoot = "D:\GP3\backups",
   # Skip the typed confirmation (for scripted use). The target checks still apply.
   [switch]$Yes
 )
@@ -53,7 +50,6 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Backend = Join-Path $RepoRoot "backend"
 if (-not $EnvFile) { $EnvFile = Join-Path $Backend ".env" }
 $Python = Join-Path $Backend ".venv\Scripts\python.exe"
-if (-not $BackupRoot) { $BackupRoot = Join-Path (Split-Path $RepoRoot -Parent) "backups" }
 $ProductionDir = Join-Path $BackupRoot "production"
 $LocalDir = Join-Path $BackupRoot "local-dev"
 
@@ -145,18 +141,12 @@ try {
   }
   Invoke-LocalRestore $local $sourceDump $undo.Path $verify
 
-  # --------------------- 6. schema, keep copied passwords, dev accounts back
+  # --------------------- 6. schema, keep copied passwords
   try {
     Write-DbLog "INFO" "[4/5] Applying this checkout's migrations..."
     Invoke-Backend @("-m", "app.db.migrate", "upgrade") "Migrations"
-    Write-DbLog "INFO" "[5/5] Keeping production passwords; re-creating the -dev accounts..."
+    Write-DbLog "INFO" "[5/5] Keeping production passwords..."
     Invoke-Backend @("-m", "app.services.super_admin_env", "adopt") "Adopting SUPER_ADMIN_* values"
-    if (Get-EnvFileValue $EnvFile "DEV_ACCOUNT_PASSWORD") {
-      Invoke-Backend @("-m", "app.seeds.dev_accounts") "Creating dev accounts"
-    }
-    else {
-      Write-DbLog "WARN" "DEV_ACCOUNT_PASSWORD is not set in backend\.env - no -dev accounts created."
-    }
   }
   catch {
     $reason = $_.Exception.Message
@@ -174,7 +164,7 @@ try {
       Remove-Item -LiteralPath "$($_.FullName).sha256" -Force -ErrorAction SilentlyContinue
     }
 
-  Write-DbLog "OK" "RESULT: PASS - local development now holds the production snapshot, plus the -dev accounts."
+  Write-DbLog "OK" "RESULT: PASS - local development now holds the production snapshot."
   Write-DbLog "INFO" "Undo point if you need it: $($undo.Path)"
 }
 catch {

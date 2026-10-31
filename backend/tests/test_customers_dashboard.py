@@ -198,6 +198,9 @@ def test_manager_dashboard_is_scoped_to_the_subtree(client, users) -> None:
             # The reference score and the two numbers it is computed from.
             "eligible_accounts", "references_on_eligible", "reference_score",
         }, row["name"]
+        # "References assigned" is the eligible book; what was taken from it
+        # can never exceed it.
+        assert row["references_on_eligible"] <= row["eligible_accounts"], row["name"]
 
 
 def test_report_rows_sort_stalest_first(client, users) -> None:
@@ -249,7 +252,7 @@ def test_the_dashboard_carries_nothing_from_sap(client, users) -> None:
             assert "customers" not in row, name
 
 
-def test_deactivating_somebody_drops_them_from_every_count(client, users, db) -> None:
+def test_deleting_somebody_drops_them_from_every_count(client, users, db) -> None:
     """A leaver is not "a user in scope".
 
     They cannot be assigned anything and appear on no other screen, so a count
@@ -260,7 +263,11 @@ def test_deactivating_somebody_drops_them_from_every_count(client, users, db) ->
     before = client.get("/api/dashboard", headers=headers).json()["org"]
 
     target = users["Aastha Ramchandani"]     # a BDE with no direct reports
-    assert client.delete(f"/api/users/{target.id}", headers=headers).status_code == 200
+    assert client.delete(
+        f"/api/users/{target.id}",
+        headers=super_admin_headers(client),
+        params={"hand_over_to": str(users["Muskan Makhija"].id)},
+    ).status_code == 200
     db.expire_all()
 
     after = client.get("/api/dashboard", headers=headers).json()["org"]

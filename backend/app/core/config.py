@@ -133,11 +133,6 @@ class Settings(BaseSettings):
     # Turn this ON before the portal reaches real users: while it is off, every
     # account shares one password that is written down in .env.
     SEED_FORCE_PASSWORD_CHANGE: bool = False
-    #: Password for the "-dev" accounts (superadmin-dev, navya-dev, ...) that
-    #: `python -m app.seeds.dev_accounts` creates on a LOCAL development
-    #: database only. Lives in backend/.env, never in the repository, and is
-    #: meaningless anywhere else: those accounts do not exist in production.
-    DEV_ACCOUNT_PASSWORD: str = ""
     #: LOCAL development only: the password every real account gets in the
     #: local database when `python -m app.seeds.dev_accounts --local-passwords`
     #: runs, with {username} replaced - so a local copy of the data can be

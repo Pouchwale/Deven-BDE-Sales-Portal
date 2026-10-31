@@ -27,8 +27,7 @@
 #>
 [CmdletBinding()]
 param(
-  # Blank = backups\local-dev beside the repository (see backup-production.ps1).
-  [string]$Destination = "",
+  [string]$Destination = "D:\GP3\backups\local-dev",
   [string]$EnvFile = "",
   [string]$PgBin = "C:\Program Files\PostgreSQL\18\bin",
   [int]$KeepDaily = 14,
@@ -41,7 +40,6 @@ Set-StrictMode -Version 2.0
 
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if (-not $EnvFile) { $EnvFile = Join-Path $RepoRoot "backend\.env" }
-if (-not $Destination) { $Destination = Join-Path (Split-Path $RepoRoot -Parent) "backups\local-dev" }
 
 $LogFile = $null
 

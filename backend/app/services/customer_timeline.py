@@ -157,7 +157,7 @@ def timeline(
                 "activity_type": activity.activity_type,
                 "title": _title_for(activity.activity_type),
                 "remark": activity.remark,
-                "actor_name": names.get(activity.actor_user_id),
+                "actor_name": names.get(activity.actor_user_id) or activity.actor_name,
                 "created_at": activity.created_at,
                 "undone_at": activity.undone_at,
                 "can_undo": activity.undone_at is None,

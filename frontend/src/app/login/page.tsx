@@ -8,7 +8,7 @@ import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
 import { InlineError, Spinner } from "@/components/ui/Feedback";
-import { ApiError } from "@/lib/api";
+import { ApiError, SERVER_UNAVAILABLE } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 /** Shown for every failed sign-in. The server already refuses to say whether
@@ -34,7 +34,7 @@ function signInErrorMessage(cause: unknown): string {
       return "Cannot reach the server. Check your connection and try again.";
     }
     // Gateway/unavailable while the instance starts or restarts.
-    if ([502, 503, 504].includes(cause.status)) {
+    if (cause.code === SERVER_UNAVAILABLE || [502, 503, 504].includes(cause.status)) {
       return "The server is starting up or temporarily unavailable. Try again in a minute.";
     }
     // A genuine server-side error. Report the status without any detail.
@@ -50,7 +50,7 @@ function signInErrorMessage(cause: unknown): string {
  *  retries. A real server error carries the portal's own error code; a gateway
  *  failure, a dead socket or a platform throttle does not. */
 function serverUnavailable(cause: ApiError): boolean {
-  if (cause.code === "NETWORK_ERROR") return true;
+  if (cause.code === "NETWORK_ERROR" || cause.code === SERVER_UNAVAILABLE) return true;
   if ([502, 503, 504].includes(cause.status)) return true;
   // A hibernating/throttled instance (Render's "hibernate-rate-limited")
   // answers 429 with no app error code, and wakes within about a minute - so

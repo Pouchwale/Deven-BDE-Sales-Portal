@@ -167,7 +167,6 @@ class UserUpdate(BaseModel):
     manager_id: uuid.UUID | None = None
     team_id: uuid.UUID | None = None
     heads_department_id: uuid.UUID | None = None
-    is_active: bool | None = None
 
     @field_validator("email", mode="after")
     @classmethod

@@ -5,10 +5,8 @@
 .DESCRIPTION
   Creates (or replaces) the task "BDE Portal - production backup", running
   backup-production.ps1 every day at 02:00 (or as soon as the PC is on, if it
-  was off then). It only READS production and writes dumps to backups\production
-  beside the repository (D:\BDE and SALES PORTAL\backups\production). The
-  task gets that path in full: after moving or renaming the project folder,
-  run this again. It never touches the local development database:
+  was off then). It only READS production and writes dumps to
+  D:\GP3\backups\production. It never touches the local development database:
   refreshing local from production is a manual step (copy-from-render.ps1).
 
   It also removes the old task "BDE Portal - PostgreSQL backup", which dumped
@@ -28,15 +26,10 @@ param(
   [string]$TaskName = "BDE Portal - production backup",
   [string]$LegacyTaskName = "BDE Portal - PostgreSQL backup",
   [string]$At = "02:00",
-  # Blank = backups\production beside the repository (see backup-production.ps1).
-  [string]$Destination = ""
+  [string]$Destination = "D:\GP3\backups\production"
 )
 
 $ErrorActionPreference = "Stop"
-if (-not $Destination) {
-  $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-  $Destination = Join-Path (Split-Path $RepoRoot -Parent) "backups\production"
-}
 
 $script = Join-Path $PSScriptRoot "backup-production.ps1"
 if (-not (Test-Path -LiteralPath $script)) { throw "Not found: $script" }

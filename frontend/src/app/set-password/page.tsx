@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Form";
+import { Field, PasswordInput } from "@/components/ui/Form";
 import { InlineError, Spinner } from "@/components/ui/Feedback";
 import { cn } from "@/lib/cn";
 import { api, errorMessage } from "@/lib/api";
@@ -91,9 +91,8 @@ export default function SetPasswordPage() {
         <div className="rounded-card border border-line bg-surface p-5 card-shadow">
           <form onSubmit={onSubmit} className="space-y-4" noValidate>
             <Field label="Current password" htmlFor="current" required>
-              <Input
+              <PasswordInput
                 id="current"
-                type="password"
                 autoComplete="current-password"
                 autoFocus
                 required
@@ -104,9 +103,8 @@ export default function SetPasswordPage() {
             </Field>
 
             <Field label="New password" htmlFor="next" required>
-              <Input
+              <PasswordInput
                 id="next"
-                type="password"
                 autoComplete="new-password"
                 required
                 value={next}
@@ -144,9 +142,8 @@ export default function SetPasswordPage() {
               required
               error={confirm.length > 0 && !matches ? "These do not match." : null}
             >
-              <Input
+              <PasswordInput
                 id="confirm"
-                type="password"
                 autoComplete="new-password"
                 required
                 value={confirm}

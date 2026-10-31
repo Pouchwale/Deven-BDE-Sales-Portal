@@ -9,13 +9,14 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core import authority
 from app.core.constants import ADMIN_ROLES, AuditAction, EntityType, ErrorCode, Role
 from app.core.errors import conflict, forbidden, invalid, not_found
 from app.core.passwords import PasswordPolicyError, validate_password
+from app.core.security import verify_password
 from app.core.sessions import RevokeReason, revoke_user_sessions
 from app.core import password_vault, usernames
 from app.db.base import as_naive_utc, utcnow
@@ -303,18 +304,17 @@ def update_user(
     """
     # PATCH semantics: an explicit null for a column that cannot be null means
     # "leave it alone", never "blank it".
-    for field in ("name", "email", "username", "role", "is_active"):
+    for field in ("name", "email", "username", "role"):
         if field in changes and changes[field] is None:
             del changes[field]
+    # There is no deactivation any more: removing somebody is delete_user.
+    changes.pop("is_active", None)
 
     new_role = str(changes["role"]) if changes.get("role") is not None else target.role
     role_changing = new_role != target.role
-    deactivating = changes.get("is_active") is False and target.is_active
 
     if role_changing:
         _require_not_last_super_admin(db, target, "change the role of")
-    if deactivating:
-        _require_not_last_super_admin(db, target, "deactivate")
 
     require_actionable(db, actor, target)                    # Rule 1
 
@@ -358,17 +358,9 @@ def update_user(
     if "heads_department_id" in changes:
         _validate_department_head(db, actor, target.id, changes["heads_department_id"])
 
-    if "is_active" in changes and changes["is_active"] is False:
-        _require_no_direct_reports(db, target)
-
     for field, value in changes.items():
         if field in _AUDITED_FIELDS:
             setattr(target, field, str(value) if field == "role" else value)
-
-    if deactivating:
-        target.deactivated_at = utcnow()
-    elif changes.get("is_active") is True and target.deactivated_at is not None:
-        target.deactivated_at = None
 
     db.flush()
 
@@ -377,9 +369,7 @@ def update_user(
 
     # New permissions (or no access at all) apply from the very next request,
     # not whenever their old session happens to expire.
-    if "is_active" in changed_after and after["is_active"] is False:
-        revoke_user_sessions(db, target.id, RevokeReason.DEACTIVATED)
-    elif "role" in changed_after:
+    if "role" in changed_after:
         revoke_user_sessions(db, target.id, RevokeReason.ROLE_CHANGED)
 
     if changed_after:
@@ -480,6 +470,20 @@ def reset_password(
 
 
 # ------------------------------------------------------------- lockout
+def confirm_password_saved(db: Session, user_id: uuid.UUID, password: str) -> None:
+    """Call AFTER commit: read the row back from the database itself (a column
+    SELECT, not the session's cached object) and prove sign-in will accept
+    `password` and the Super Admin's copy shows it. Raises when either is not
+    so, which the API reports as a server error instead of a false success."""
+    row = db.execute(
+        select(User.hashed_password, User.password_encrypted).where(User.id == user_id)
+    ).one()
+    if not verify_password(password, row.hashed_password):
+        raise RuntimeError("Saved password hash does not verify after commit")
+    if password_vault.enabled() and password_vault.decrypt(row.password_encrypted) != password:
+        raise RuntimeError("Saved password copy does not decrypt after commit")
+
+
 def reveal_password(
     db: Session, actor: User, target: User, *, ip_address: str | None = None
 ) -> str | None:
@@ -581,7 +585,7 @@ def user_activity(
             "id": row.id,
             "action": row.action,
             "actor_user_id": row.actor_user_id,
-            "actor_name": names.get(row.actor_user_id),
+            "actor_name": names.get(row.actor_user_id) or row.actor_name,
             "entity_type": row.entity_type,
             "entity_id": row.entity_id,
             "before": _redact(row.before),
@@ -594,68 +598,87 @@ def user_activity(
     return items, total
 
 
-# --------------------------------------------------------- permanent delete
+# ----------------------------------------------------------------- delete
 #
-# Rows that may vanish with the person, because they ARE the person: their own
-# notification inbox and their own chat history. Nothing organisational.
-_DELETION_IGNORED = {
+# Deleting is the only way to remove somebody (deactivation was removed at the
+# owner's request, 2026-10-30). Their WORK is never deleted with them: what
+# they own is handed to a person the Super Admin picks, and history rows that
+# say who acted keep their name in actor_name. Every foreign key that points
+# at `users` is in exactly one of the groups below; a test enforces that, so a
+# table added later cannot silently lose its owner.
+
+#: Ownership. Moved to the person taking over.
+HANDED_OVER: tuple[tuple[str, str], ...] = (
+    ("customers", "owner_user_id"),
+    ("invoice_lines", "owner_user_id"),
+    ("leads", "assigned_to_user_id"),
+    ("customer_references", "requested_by_user_id"),
+    ("feedback_requests", "owner_user_id"),
+    ("feedback", "handled_by_user_id"),
+    ("feedback_alerts", "assigned_to_user_id"),
+    ("users", "manager_id"),
+)
+#: "Who did this". actor_name keeps the deleted person's name.
+NAMED_HISTORY: tuple[tuple[str, str], ...] = (
+    ("audit_events", "actor_user_id"),
+    ("lead_activities", "actor_user_id"),
+    ("customer_activities", "actor_user_id"),
+)
+#: Secondary references, cleared by ON DELETE SET NULL.
+CLEARED: tuple[tuple[str, str], ...] = (
+    ("leads", "assigned_by_user_id"),
+    ("lead_activities", "undone_by_user_id"),
+    ("customer_activities", "undone_by_user_id"),
+    ("lead_handoffs", "from_user_id"),
+    ("lead_handoffs", "to_user_id"),
+    ("sap_imports", "uploaded_by_user_id"),
+    ("feedback_imports", "uploaded_by_user_id"),
+    ("app_settings", "updated_by_user_id"),
+)
+#: The person's own rows, removed with them (ON DELETE CASCADE).
+REMOVED_WITH_THEM: tuple[tuple[str, str], ...] = (
     ("notifications", "user_id"),
     ("chat_conversations", "user_id"),
-    # Sign-in bookkeeping (ON DELETE CASCADE). Without this, merely having
-    # been issued a session made an account undeletable.
     ("user_sessions", "user_id"),
-}
+)
 
 
-def deletion_blockers(db: Session, target: User) -> list[dict[str, Any]]:
-    """Everything that would lose its owner if this account were deleted.
-
-    Discovered from the schema rather than from a hand-written list: every
-    foreign key that points at `users` is checked, so a table added later is
-    covered without anyone remembering to come back here. A hardcoded list is
-    exactly the kind of thing that silently stops being true.
-
-    Most of those columns are ON DELETE SET NULL, so the database would let
-    the delete through and quietly blank the owner - a lead with nobody
-    against it, an audit entry that no longer says who acted. That is the
-    outcome this prevents.
-    """
+def _column(table_name: str, column_name: str):  # noqa: ANN202
     from app.db.base import Base
 
+    table = Base.metadata.tables[table_name]
+    return table, table.c[column_name]
+
+
+def handover_counts(db: Session, target: User) -> list[dict[str, Any]]:
+    """What this person owns that has to go to somebody else first."""
     found: list[dict[str, Any]] = []
-    # `.tables`, not `.sorted_tables`: sorting needs a topological order the
-    # schema cannot give (leads and customer_references reference each other),
-    # and the order is irrelevant to counting rows.
-    for table in Base.metadata.tables.values():
-        for column in table.columns:
-            if not any(fk.column.table.name == "users" for fk in column.foreign_keys):
-                continue
-            if (table.name, column.name) in _DELETION_IGNORED:
-                continue
-            count = db.scalar(
-                select(func.count()).select_from(table).where(column == target.id)
-            ) or 0
-            if count:
-                found.append({"table": table.name, "column": column.name, "rows": count})
+    for table_name, column_name in HANDED_OVER:
+        table, column = _column(table_name, column_name)
+        count = db.scalar(select(func.count()).select_from(table).where(column == target.id)) or 0
+        if count:
+            found.append({"table": table_name, "column": column_name, "rows": count})
     return found
 
 
 def delete_user(
-    db: Session, actor: User, target: User, *, ip_address: str | None = None
-) -> None:
-    """Permanently remove an account that never did anything.
+    db: Session,
+    actor: User,
+    target: User,
+    *,
+    hand_over_to: uuid.UUID | None = None,
+    ip_address: str | None = None,
+) -> User | None:
+    """Delete an account, handing everything it owns to `hand_over_to`.
 
-    Deactivation is the normal path and stays the default: it hides somebody
-    everywhere while keeping their name against the work they did. This is for
-    the other case - an account created by mistake, or a person who left
-    before doing anything - where a deactivated row is just clutter.
-
-    Refused the moment they have any history, with the reason spelled out, so
-    "delete" can never quietly become "erase who did this". Super Admin only.
+    Super Admin only. Refused for yourself and for the last Super Admin.
+    `hand_over_to` is required whenever the person owns anything (see
+    HANDED_OVER) and returns the person who took over. One transaction: the
+    caller commits, so a failure anywhere leaves everything as it was.
     """
     if actor.role != Role.SUPER_ADMIN:
         raise forbidden(
-            "Only a Super Admin can permanently delete an account.",
+            "Only a Super Admin can delete an account.",
             ErrorCode.FORBIDDEN,
             actor_role=actor.role,
         )
@@ -670,16 +693,40 @@ def delete_user(
     # Also refuses self-deletion: `can_act_on` returns False for yourself.
     require_actionable(db, actor, target)
 
-    blockers = deletion_blockers(db, target)
-    if blockers:
-        total = sum(row["rows"] for row in blockers)
-        raise conflict(
-            f"{target.name} has {total} record(s) attached and cannot be deleted. "
-            "Deactivate them instead - that hides them everywhere while keeping "
-            "their name against the work they did.",
-            ErrorCode.CONFLICT,
-            blockers=blockers,
-        )
+    owned = handover_counts(db, target)
+    receiver: User | None = None
+    if owned:
+        if hand_over_to is None:
+            total = sum(row["rows"] for row in owned)
+            raise conflict(
+                f"{target.name} still owns {total} record(s). "
+                "Choose who takes them over, then delete.",
+                ErrorCode.CONFLICT,
+                handover=owned,
+            )
+        receiver = db.get(User, hand_over_to)
+        if receiver is None or not receiver.is_active:
+            raise invalid("The person taking over must be an active user.", field="hand_over_to")
+        if receiver.id == target.id:
+            raise invalid("Choose somebody else to take over.", field="hand_over_to")
+
+        # Direct reports move under the receiver - except the receiver
+        # themself, if they reported to the person leaving: they move up to
+        # that person's own manager instead of reporting to themselves.
+        reports = db.execute(select(User).where(User.manager_id == target.id)).scalars().all()
+        for report in reports:
+            new_manager_id = target.manager_id if report.id == receiver.id else receiver.id
+            _validate_manager(db, actor, report.id, new_manager_id, report.role)
+            report.manager_id = new_manager_id
+        for table_name, column_name in HANDED_OVER:
+            if table_name == "users":
+                continue
+            table, column = _column(table_name, column_name)
+            db.execute(update(table).where(column == target.id).values({column_name: receiver.id}))
+
+    for table_name, column_name in NAMED_HISTORY:
+        table, column = _column(table_name, column_name)
+        db.execute(update(table).where(column == target.id).values(actor_name=target.name))
 
     # Written BEFORE the row goes, so the trail records the deletion itself.
     audit.record(
@@ -688,11 +735,22 @@ def delete_user(
         action=AuditAction.USER_DELETED,
         entity_type=EntityType.USER,
         entity_id=target.id,
-        before={"name": target.name, "email": target.email, "role": target.role},
+        before={
+            "name": target.name,
+            "username": target.username,
+            "email": target.email,
+            "role": target.role,
+        },
+        after={
+            "handed_over_to": receiver.name if receiver else None,
+            "moved": {f"{row['table']}.{row['column']}": row["rows"] for row in owned},
+        },
         ip_address=ip_address,
     )
+    db.flush()
     db.delete(target)
     db.flush()
+    return receiver
 
 
 def change_own_password(
@@ -711,98 +769,6 @@ def change_own_password(
         ip_address=ip_address,
     )
     return user
-
-
-# ----------------------------------------------------------- deactivate
-def _require_no_direct_reports(db: Session, target: User) -> None:
-    reports = (
-        db.execute(
-            select(User).where(User.manager_id == target.id, User.is_active.is_(True))
-        )
-        .scalars()
-        .all()
-    )
-    if reports:
-        raise conflict(
-            f"{target.name} still has {len(reports)} direct report(s). "
-            "Give them a new manager first.",
-            ErrorCode.HAS_DIRECT_REPORTS,
-            reports=[{"id": str(r.id), "name": r.name} for r in reports],
-        )
-
-
-def deactivate_user(
-    db: Session,
-    actor: User,
-    target: User,
-    *,
-    reassign_reports_to: uuid.UUID | None = None,
-    ip_address: str | None = None,
-) -> User:
-    """Soft deactivate. Hard deletion orphans leads, references and history.
-
-    Reports must be re-parented first, either in an earlier call or by
-    passing `reassign_reports_to` here.
-
-    Nothing attached to them is touched: leads, references, feedback,
-    notifications and the audit trail all keep pointing at this row. Their
-    sessions end immediately.
-    """
-    _require_not_last_super_admin(db, target, "deactivate")
-    require_actionable(db, actor, target)
-
-    if reassign_reports_to is not None:
-        new_manager = db.get(User, reassign_reports_to)
-        if new_manager is None or not new_manager.is_active:
-            raise invalid("The replacement manager is not an active user.")
-        if new_manager.id == target.id:
-            raise invalid("Choose a different manager.")
-        reports = (
-            db.execute(select(User).where(User.manager_id == target.id)).scalars().all()
-        )
-        for report in reports:
-            _validate_manager(db, actor, report.id, new_manager.id, report.role)
-            report.manager_id = new_manager.id
-        db.flush()
-
-    _require_no_direct_reports(db, target)
-
-    before = snapshot(target)
-    target.is_active = False
-    target.deactivated_at = utcnow()
-    db.flush()
-    revoke_user_sessions(db, target.id, RevokeReason.DEACTIVATED)
-
-    audit.record(
-        db,
-        actor_id=actor.id,
-        action=AuditAction.USER_DEACTIVATED,
-        entity_type=EntityType.USER,
-        entity_id=target.id,
-        before={"is_active": before["is_active"]},
-        after={"is_active": False},
-        ip_address=ip_address,
-    )
-    return target
-
-
-def reactivate_user(
-    db: Session, actor: User, target: User, *, ip_address: str | None = None
-) -> User:
-    require_actionable(db, actor, target)
-    target.is_active = True
-    target.deactivated_at = None
-    db.flush()
-    audit.record(
-        db,
-        actor_id=actor.id,
-        action=AuditAction.USER_REACTIVATED,
-        entity_type=EntityType.USER,
-        entity_id=target.id,
-        after={"is_active": True},
-        ip_address=ip_address,
-    )
-    return target
 
 
 # ------------------------------------------------------------ org chart

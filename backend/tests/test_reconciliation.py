@@ -186,6 +186,19 @@ def test_reference_population_agrees_everywhere(client, db, book, name) -> None:
     assert _tool(db, user, "list_pending_feedback_requests")["total"] == len(pending)
     assert _tool(db, user, "get_my_work_summary")["references"] == module
 
+    # A manager's "My tasks": the dashboard tile, the tab and the assistant
+    # read the same list - their own accounts still owing an answer.
+    if dashboard["my_reference"] is not None:
+        mine = client.get(
+            "/api/references/accounts",
+            headers=h,
+            params={"open_only": True, "owner_id": str(user.id)},
+        ).json()
+        assert dashboard["my_reference"]["open_tasks"] == len(mine)
+        assert all(row["owner_user_id"] == str(user.id) for row in mine)
+        tool = _tool(db, user, "list_reference_accounts", {"mine": True, "open_only": True})
+        assert tool["total"] == len(mine)
+
 
 def test_the_book_is_what_the_fixture_built(client, book) -> None:
     """Guards the other tests from passing vacuously on an empty book."""

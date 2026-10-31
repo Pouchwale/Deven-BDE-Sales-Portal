@@ -9,17 +9,17 @@ import {
 } from "@/components/admin/passwordPolicy";
 import { PasswordReveal } from "@/components/admin/PasswordReveal";
 
-import { History, KeyRound, Lock, Pencil, Unlock } from "lucide-react";
+import { History, KeyRound, Lock, Pencil, Trash2, Unlock } from "lucide-react";
 
 import { ActiveBadge, Badge, RoleBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState, InlineError, TableSkeleton } from "@/components/ui/Feedback";
-import { Field, Input, Select } from "@/components/ui/Form";
+import { Field, PasswordInput, Select } from "@/components/ui/Form";
 import { Modal } from "@/components/ui/Modal";
 import { Pagination } from "@/components/ui/Pagination";
-import { ApiError, api, errorMessage } from "@/lib/api";
+import { api, errorMessage } from "@/lib/api";
 import { formatDateTime, formatRelative } from "@/lib/format";
-import { ERROR_HINTS, roleLabel } from "@/lib/roles";
+import { roleLabel } from "@/lib/roles";
 import { useToast } from "@/lib/toast";
 import { useAsync } from "@/lib/useAsync";
 import type { User, UserActivityItem, UserDetail } from "@/types/api";
@@ -41,10 +41,11 @@ export function AccountStatusBadge({ user }: { user: UserDetail }) {
 /**
  * Change somebody's password.
  *
- * WHY NOTHING HERE EVER SHOWS AN EXISTING PASSWORD. They are stored as
- * one-way bcrypt hashes: the plaintext is not kept, so no screen and no
- * endpoint can produce it. The administrator types the new one twice; it is
- * sent once, never echoed back, and never displayed afterwards.
+ * The administrator types the new one twice (the eye shows what was typed);
+ * it is sent once and never echoed back. The server answers only after the
+ * change is committed AND re-read from the database, so "Password updated
+ * successfully" means the next sign-in will accept it. The Super Admin can
+ * look at the current password afterwards with the eye in the account panel.
  */
 export function ResetPasswordDialog({
   open,
@@ -60,7 +61,8 @@ export function ResetPasswordDialog({
   const toast = useToast();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [mustChange, setMustChange] = useState(true);
+  // Off by default: the password set here is the one the person uses.
+  const [mustChange, setMustChange] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -78,7 +80,7 @@ export function ResetPasswordDialog({
       // Nothing about the password is kept in this component once it closes.
       setPassword("");
       setConfirm("");
-      toast.success("Password changed", result.message);
+      toast.success("Password updated successfully.", result.message);
       onDone();
       onClose();
     } catch (cause) {
@@ -114,9 +116,8 @@ export function ResetPasswordDialog({
           error={problem}
           hint={PASSWORD_POLICY_HINT}
         >
-          <Input
+          <PasswordInput
             id="new-password"
-            type="password"
             required
             minLength={PASSWORD_MIN_LENGTH}
             autoComplete="new-password"
@@ -132,9 +133,8 @@ export function ResetPasswordDialog({
           required
           error={mismatch ? "The two passwords do not match." : null}
         >
-          <Input
+          <PasswordInput
             id="confirm-password"
-            type="password"
             required
             autoComplete="new-password"
             value={confirm}
@@ -153,7 +153,8 @@ export function ResetPasswordDialog({
           <span>
             Require a password change at next sign-in
             <span className="mt-0.5 block text-[12px] text-subtle">
-              Recommended. A password two people know is not a password.
+              Leave off to hand them this password to keep. Turn on to make them pick
+              their own after signing in with it.
             </span>
           </span>
         </label>
@@ -164,8 +165,28 @@ export function ResetPasswordDialog({
   );
 }
 
-/* --------------------------------------------------------- deactivate */
-export function DeactivateDialog({
+/* ---------------------------------------------------------------- delete */
+/** Plain words for what is handed over, by the table it lives in. */
+const HANDOVER_LABELS: Record<string, string> = {
+  customers: "customers",
+  invoice_lines: "invoice lines",
+  leads: "leads",
+  customer_references: "reference asks",
+  feedback_requests: "feedback requests",
+  feedback: "feedback replies",
+  feedback_alerts: "feedback alerts",
+  users: "direct reports",
+};
+
+/**
+ * Delete an account - the only way to remove somebody. Super Admin only.
+ *
+ * Nothing they worked on is lost: whatever they own moves to the person
+ * chosen here, in the same transaction as the delete, and the activity
+ * history keeps their name. The server decides what has to move; this dialog
+ * shows its answer and asks only who takes it.
+ */
+export function DeleteUserDialog({
   open,
   onClose,
   onDone,
@@ -177,32 +198,40 @@ export function DeactivateDialog({
   user: UserDetail | null;
 }) {
   const toast = useToast();
-  const [replacement, setReplacement] = useState("");
+  const [receiver, setReceiver] = useState("");
   const [candidates, setCandidates] = useState<User[]>([]);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<ApiError | Error | null>(null);
+  const [error, setError] = useState<Error | null>(null);
 
-  const needsReparenting = (user?.direct_report_count ?? 0) > 0;
+  const preview = useAsync(
+    (signal) =>
+      user ? api.users.deletionPreview(user.id, signal) : Promise.resolve({ handover: [] }),
+    [user?.id],
+  );
+  const handover = preview.data?.handover ?? [];
+  const needsReceiver = handover.length > 0;
 
   useEffect(() => {
-    if (!open || !needsReparenting) return;
+    if (!open || !needsReceiver) return;
     const controller = new AbortController();
     api.users
       .actionable(controller.signal)
-      .then((people) => setCandidates(people.filter((person) => person.id !== user?.id)))
+      .then((people) =>
+        setCandidates(people.filter((person) => person.id !== user?.id && person.is_active)),
+      )
       .catch(() => {
         /* the select simply stays empty; the API still enforces the rule */
       });
     return () => controller.abort();
-  }, [open, needsReparenting, user?.id]);
+  }, [open, needsReceiver, user?.id]);
 
   async function submit() {
     if (!user) return;
     setSaving(true);
     setError(null);
     try {
-      await api.users.deactivate(user.id, replacement || null);
-      toast.success("Deactivated", `${user.name} can no longer sign in.`);
+      const result = await api.users.delete(user.id, needsReceiver ? receiver : null);
+      toast.success("Account deleted", result.message);
       onDone();
       onClose();
     } catch (cause) {
@@ -212,19 +241,13 @@ export function DeactivateDialog({
     }
   }
 
-  const code = error instanceof ApiError ? error.code : null;
-  const reports =
-    error instanceof ApiError && Array.isArray(error.details.reports)
-      ? (error.details.reports as { id: string; name: string }[])
-      : [];
-
   return (
     <Modal
       open={open}
       onClose={onClose}
       size="md"
-      title={`Deactivate ${user?.name ?? ""}?`}
-      description="Nothing is deleted. Their leads, references and history stay attributed to them."
+      title={`Delete ${user?.name ?? ""}?`}
+      description="Their account and sign-in are removed. This cannot be undone."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={saving}>
@@ -234,160 +257,61 @@ export function DeactivateDialog({
             variant="danger"
             onClick={submit}
             loading={saving}
-            disabled={needsReparenting && !replacement}
+            disabled={preview.loading || Boolean(preview.error) || (needsReceiver && !receiver)}
           >
-            Deactivate
+            Delete
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <ul className="space-y-1.5 text-[13px] text-muted">
-          <li>· They can no longer sign in.</li>
-          <li>· They disappear from every assignee dropdown.</li>
-          <li>· Historical attribution is preserved everywhere.</li>
-        </ul>
-
-        {needsReparenting ? (
-          <Field
-            label="Move their reports to"
-            htmlFor="replacement"
-            required
-            hint={`${user?.name} has ${user?.direct_report_count} direct report(s). They need a new manager first.`}
-          >
-            <Select
-              id="replacement"
+        {preview.loading ? (
+          <p className="text-[13px] text-muted">Checking what {user?.name} owns…</p>
+        ) : preview.error ? (
+          <InlineError>{errorMessage(preview.error)}</InlineError>
+        ) : needsReceiver ? (
+          <>
+            <div className="rounded-lg border border-line bg-surface-2 px-3 py-2.5">
+              <p className="text-[12.5px] font-semibold text-content">
+                {user?.name} still has work that will be handed over:
+              </p>
+              <ul className="mt-1.5 space-y-0.5">
+                {handover.map((row) => (
+                  <li key={`${row.table}.${row.column}`} className="text-[12.5px] text-muted">
+                    · {row.rows} {HANDOVER_LABELS[row.table] ?? row.table}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <Field
+              label="Hand everything over to"
+              htmlFor="receiver"
               required
-              value={replacement}
-              onChange={(event) => setReplacement(event.target.value)}
+              hint="Their activity history keeps their name."
             >
-              <option value="">Choose a manager…</option>
-              {candidates.map((candidate) => (
-                <option key={candidate.id} value={candidate.id}>
-                  {candidate.name} · {roleLabel(candidate.role)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        ) : null}
+              <Select
+                id="receiver"
+                required
+                value={receiver}
+                onChange={(event) => setReceiver(event.target.value)}
+              >
+                <option value="">Choose a person…</option>
+                {candidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.name} · {roleLabel(candidate.role)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </>
+        ) : (
+          <p className="text-[13px] leading-relaxed text-muted">
+            {user?.name} owns no customers, leads or references, so nothing needs to be
+            handed over.
+          </p>
+        )}
 
-        {error ? (
-          <InlineError>
-            {code && ERROR_HINTS[code] ? `${ERROR_HINTS[code]} ` : ""}
-            {errorMessage(error)}
-            {reports.length > 0 ? ` (${reports.map((r) => r.name).join(", ")})` : ""}
-          </InlineError>
-        ) : null}
-      </div>
-    </Modal>
-  );
-}
-
-/* ---------------------------------------------------- permanent delete */
-/**
- * Erase an account outright. Super Admin only, and refused by the server the
- * moment the person has any history.
- *
- * Deactivation is the normal path and this dialog says so, because the two
- * are easy to confuse and only one of them is reversible. The check lives on
- * the server - this dialog just reports what it says, so the rule cannot be
- * one thing here and another in the API.
- */
-export function DeleteUserDialog({
-  open,
-  onClose,
-  onDone,
-  onDeactivateInstead,
-  user,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onDone: () => void;
-  onDeactivateInstead: () => void;
-  user: UserDetail | null;
-}) {
-  const toast = useToast();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<ApiError | Error | null>(null);
-
-  const blockers =
-    error instanceof ApiError
-      ? ((error.details?.blockers as { table: string; column: string; rows: number }[]) ??
-        [])
-      : [];
-
-  async function submit() {
-    if (!user) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await api.users.deletePermanently(user.id);
-      toast.success("Account deleted", `${user.name} is gone for good.`);
-      onDone();
-      onClose();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause : new Error(String(cause)));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      size="sm"
-      title={`Permanently delete ${user?.name ?? ""}?`}
-      description="This cannot be undone."
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          {blockers.length > 0 ? (
-            <Button
-              onClick={() => {
-                onClose();
-                onDeactivateInstead();
-              }}
-            >
-              Deactivate instead
-            </Button>
-          ) : (
-            <Button variant="danger" onClick={submit} loading={saving}>
-              Delete for good
-            </Button>
-          )}
-        </>
-      }
-    >
-      <div className="space-y-3">
-        <p className="text-[13px] leading-relaxed text-muted">
-          The account and its sign-in are removed entirely. Use this only for an
-          account created by mistake, or somebody who left before doing any work.
-        </p>
-        <p className="text-[13px] leading-relaxed text-muted">
-          If they have worked on anything,{" "}
-          <span className="font-medium text-content">deactivate</span> them instead:
-          it hides them everywhere while keeping their name against what they did.
-        </p>
-
-        {blockers.length > 0 ? (
-          <div className="rounded-lg border border-warning/25 bg-warning-soft px-3 py-2.5">
-            <p className="text-[12.5px] font-semibold text-warning">
-              Refused — this account has history
-            </p>
-            <ul className="mt-1.5 space-y-0.5">
-              {blockers.map((row) => (
-                <li key={`${row.table}.${row.column}`} className="text-[12px] text-muted">
-                  {row.rows} in <code className="font-mono">{row.table}</code>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : error ? (
-          <InlineError>{errorMessage(error)}</InlineError>
-        ) : null}
+        {error ? <InlineError>{errorMessage(error)}</InlineError> : null}
       </div>
     </Modal>
   );
@@ -408,8 +332,7 @@ export function UserDetailPanel({
   onClose,
   onEdit,
   onSetPassword,
-  onDeactivate,
-  onReactivate,
+  onDelete,
   canRevealPassword = false,
 }: {
   user: UserDetail | null;
@@ -418,8 +341,8 @@ export function UserDetailPanel({
   onClose: () => void;
   onEdit: () => void;
   onSetPassword: () => void;
-  onDeactivate: () => void;
-  onReactivate: () => void;
+  /** Super Admin only: deleting is theirs alone. */
+  onDelete?: () => void;
 }) {
   return (
     <Modal
@@ -433,6 +356,12 @@ export function UserDetailPanel({
           <Button variant="secondary" onClick={onClose}>
             Close
           </Button>
+          {user?.can_act_on && onDelete ? (
+            <Button variant="danger" onClick={onDelete}>
+              <Trash2 className="size-3.5" aria-hidden />
+              Delete
+            </Button>
+          ) : null}
           {user?.can_act_on ? (
             <>
               <Button variant="secondary" onClick={onSetPassword}>
@@ -458,11 +387,21 @@ export function UserDetailPanel({
             {canRevealPassword ? (
               <>
                 <dt className="text-subtle">Password</dt>
-                <dd className="min-w-0">
+                <dd className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                   <PasswordReveal
                     userId={user.id}
                     onSetPassword={user.can_act_on ? onSetPassword : undefined}
                   />
+                  {user.can_act_on ? (
+                    <button
+                      type="button"
+                      onClick={onSetPassword}
+                      className="inline-flex items-center gap-1 text-[12.5px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+                    >
+                      <Pencil className="size-3" aria-hidden />
+                      Edit password
+                    </button>
+                  ) : null}
                 </dd>
               </>
             ) : null}
@@ -495,15 +434,6 @@ export function UserDetailPanel({
                   <span className="text-[12px] text-subtle">
                     until {formatDateTime(user.locked_until)}
                   </span>
-                ) : null}
-                {user.can_act_on ? (
-                  <button
-                    type="button"
-                    onClick={user.is_active ? onDeactivate : onReactivate}
-                    className="text-[12.5px] text-muted underline underline-offset-2 hover:text-content"
-                  >
-                    {user.is_active ? "Deactivate" : "Reactivate"}
-                  </button>
                 ) : null}
               </span>
             </dd>

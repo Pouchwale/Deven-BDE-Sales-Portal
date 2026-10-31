@@ -306,6 +306,8 @@ export interface Dashboard {
     eligible_accounts: number;
     references_taken: number;
     reference_score: number;
+    /** The manager's own accounts still to ask: the My tasks tab. */
+    open_tasks: number;
   } | null;
   leads: LeadStats;
   org: OrgKpis;

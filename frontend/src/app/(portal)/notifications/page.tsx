@@ -12,6 +12,7 @@ import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/Feedback"
 import { Pagination } from "@/components/ui/Pagination";
 import { Tabs } from "@/components/ui/Tabs";
 import { api, errorMessage } from "@/lib/api";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { cn } from "@/lib/cn";
 import { formatRelative } from "@/lib/format";
 import { useNotifications } from "@/lib/notifications";
@@ -38,7 +39,7 @@ const TONES: Record<string, string> = {
 function destination(entityType: string | null, entityId: string | null): string {
   if (entityType === "LEAD") return "/leads?tab=my-work";
   if (entityType === "CUSTOMER" && entityId) return `/customers/detail?id=${entityId}`;
-  if (entityType === "DEPARTMENT") return "/feedback?tab=alerts";
+  if (entityType === "DEPARTMENT") return FEEDBACK_MODULE_OPEN ? "/feedback?tab=alerts" : "/dashboard";
   return "/dashboard";
 }
 

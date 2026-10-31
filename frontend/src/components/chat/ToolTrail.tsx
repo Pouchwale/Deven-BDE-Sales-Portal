@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { cn } from "@/lib/cn";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { isLeadership } from "@/lib/roles";
 import type { Role } from "@/types/api";
 
@@ -57,12 +58,12 @@ const DESTINATIONS: Record<string, Destination> = {
   list_pending_feedback_requests: {
     href: "/feedback?tab=pending",
     label: "Feedback pending",
-    visible: () => true,
+    visible: () => FEEDBACK_MODULE_OPEN,
   },
   get_feedback_analysis: {
     href: "/feedback?tab=analysis",
     label: "Feedback analysis",
-    visible: isLeadership,
+    visible: (role) => FEEDBACK_MODULE_OPEN && isLeadership(role),
   },
   list_customers: { href: "/customers", label: "Customers", visible: () => true },
   get_customer: { href: "/customers", label: "Customers", visible: () => true },

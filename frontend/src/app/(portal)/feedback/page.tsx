@@ -22,6 +22,7 @@ import { StatTile, StatTileSkeleton } from "@/components/dashboard/StatTile";
 import { CustomerReviews } from "@/components/feedback/CustomerReviews";
 import { PendingQueue, PendingSummary } from "@/components/feedback/PendingQueue";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
@@ -876,6 +877,20 @@ function ImportPanel({ onImported }: { onImported: () => void }) {
 }
 
 export default function FeedbackPage() {
+  if (!FEEDBACK_MODULE_OPEN) {
+    return (
+      <>
+        <PageHeader title="Feedback & Reviews" />
+        <Card>
+          <EmptyState
+            icon={MessageSquareHeart}
+            title="Not open yet"
+            description="Feedback & Reviews is switched off while it is being finished. Nothing here is needed for your work today."
+          />
+        </Card>
+      </>
+    );
+  }
   return (
     <Suspense fallback={<Skeleton className="h-96 rounded-card" />}>
       <FeedbackInner />

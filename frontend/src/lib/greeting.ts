@@ -6,6 +6,7 @@
  * extra request and cannot drift from the tiles underneath it.
  */
 import { firstNameWithHonorific } from "@/lib/roles";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import type { Dashboard, Honorific } from "@/types/api";
 
 /* ------------------------------------------------------------- the hour */
@@ -144,7 +145,7 @@ export function focusLines(data: Dashboard | null): FocusLine[] {
     });
   }
 
-  if (feedback_pending > 0) {
+  if (feedback_pending > 0 && FEEDBACK_MODULE_OPEN) {
     lines.push({
       text: `${plural(feedback_pending, "customer is", "customers are")} still owed a feedback request.`,
       href: "/feedback?tab=pending",

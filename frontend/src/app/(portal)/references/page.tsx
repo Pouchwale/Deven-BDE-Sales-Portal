@@ -34,6 +34,7 @@ import { TBody, TD, TH, THead, TR, Table, TableWrap } from "@/components/ui/Tabl
 import { Tabs } from "@/components/ui/Tabs";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { cn } from "@/lib/cn";
 import { formatDate, formatNumber } from "@/lib/format";
 import { REFERENCE_STATUS_LABELS, isAdmin, isCompletedReference, isLeadership } from "@/lib/roles";
@@ -96,12 +97,16 @@ function ReferencesInner() {
   const router = useRouter();
   const params = useSearchParams();
   const tab = params.get("tab") ?? "customers";
-  const statusFilter = params.get("status") ?? "";
+  const statusParam = params.get("status") ?? "";
   // A manager sees the whole team's accounts under Ready to ask; My tasks is
   // the same list narrowed to the accounts they own themselves.
   const hasTeam = isLeadership(user?.role);
   const mine = hasTeam && tab === "mine";
+  // Declined is final: an account that said it has nobody to refer is never
+  // asked again (the API refuses), and its decline is kept here for good.
+  const declinedTab = tab === "declined";
   const ownerFilter = mine ? (user?.id ?? "") : (params.get("owner") ?? "");
+  const statusFilter = declinedTab ? "DECLINED" : statusParam;
   const outcomeFilter = params.get("outcome") ?? "";
 
   const [search, setSearch] = useState("");
@@ -340,6 +345,11 @@ function ReferencesInner() {
             ? [{ key: "mine", label: "My tasks", count: myOpen.data?.length }]
             : []),
           {
+            key: "declined",
+            label: "Declined",
+            count: stats.data?.references_declined,
+          },
+          {
             key: "referred",
             label: "Referred people",
             count: referred.data?.total,
@@ -358,7 +368,7 @@ function ReferencesInner() {
       />
 
       {/* --------------------------------------------------- accounts */}
-      {tab === "customers" || mine ? (
+      {tab === "customers" || mine || declinedTab ? (
         <Card className="overflow-hidden">
           <FilterBar
             search={search}
@@ -368,7 +378,7 @@ function ReferencesInner() {
             resultCount={accounts.data?.length}
             resultNoun="accounts"
             filters={[
-              {
+              ...(declinedTab ? [] : [{
                 key: "status",
                 label: "Reference",
                 value: statusFilter,
@@ -377,8 +387,8 @@ function ReferencesInner() {
                   value,
                   label,
                 })),
-                onChange: (value) => setParam("status", value),
-              },
+                onChange: (value: string) => setParam("status", value),
+              }]),
               // My tasks is already one owner: you.
               ...(mine
                 ? []
@@ -426,7 +436,7 @@ function ReferencesInner() {
                       <TH>Account</TH>
                       <TH>Owner</TH>
                       <TH>Reference</TH>
-                      <TH>Last asked</TH>
+                      <TH>{declinedTab ? "Declined on" : "Last asked"}</TH>
                       <TH align="right">Action</TH>
                     </tr>
                   </THead>
@@ -477,16 +487,16 @@ function ReferencesInner() {
                                     ? "border-transparent bg-warning-soft text-warning"
                                     : "border-line bg-surface-2 text-subtle"
                                 }
-                                title={`Said no ${account.decline_count} time${
+                                title={`Said "not right now" ${account.decline_count} time${
                                   account.decline_count === 1 ? "" : "s"
-                                }`}
+                                } - ask again on the date set`}
                               >
-                                {account.decline_count}× declined
+                                {account.decline_count}× said later
                               </Badge>
                             ) : null}
                           </span>
                         </TD>
-                        <TD data-label="Last asked" className="whitespace-nowrap text-muted">
+                        <TD data-label={declinedTab ? "Declined on" : "Last asked"} className="whitespace-nowrap text-muted">
                           {formatDate(account.last_reference_asked_at)}
                         </TD>
                         <TD data-actions align="right">
@@ -525,10 +535,9 @@ function ReferencesInner() {
                               </>
                             ) : (
                               <>
-                                {/* Ask for the feedback first, then log the
-                                    reference ask once they have replied. The
-                                    feedback ask is the assignee's alone. */}
-                                {account.owner_user_id === user?.id ? (
+                                {/* The feedback "Ask" belongs to Feedback &
+                                    Reviews, which is switched off for now. */}
+                                {FEEDBACK_MODULE_OPEN && account.owner_user_id === user?.id ? (
                                   <SendRequestButton
                                     customerId={account.subject_id}
                                     customerName={account.subject_name}
@@ -905,9 +914,9 @@ function ReferencesInner() {
                             {row.decline_count >= 2 ? (
                               <Badge
                                 className="mt-1 border-transparent bg-warning-soft text-warning"
-                                title={`Said no ${row.decline_count} times`}
+                                title={`Said "not right now" ${row.decline_count} times`}
                               >
-                                {row.decline_count}× declined
+                                {row.decline_count}× said later
                               </Badge>
                             ) : null}
                           </TD>

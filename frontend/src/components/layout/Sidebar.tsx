@@ -23,6 +23,7 @@ import { useState } from "react";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/primitives/tooltip";
 import { cn } from "@/lib/cn";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { canBrowseCustomers, isAdmin, isLeadership } from "@/lib/roles";
 import type { Role } from "@/types/api";
 
@@ -34,6 +35,8 @@ interface NavItem {
    *  showing a door that would answer 403. */
   visible: (role: Role) => boolean;
   badge?: number;
+  /** Shown but closed: struck through, dark, not a link. */
+  disabled?: boolean;
 }
 
 /**
@@ -63,6 +66,7 @@ function navigation(role: Role, unread: number): { section: string; items: NavIt
           href: "/feedback",
           label: "Feedback & Reviews",
           icon: MessageSquareHeart,
+          disabled: !FEEDBACK_MODULE_OPEN,
           // Everyone: the pending-requests queue is the caller's OWN converted
           // work waiting on an ask, and hiding the module is what would break
           // the trail from a lead somebody just converted. The analysis,
@@ -285,6 +289,30 @@ function NavLink({
   onNavigate?: () => void;
 }) {
   const Icon = item.icon;
+  if (item.disabled) {
+    // Not in its working phase: visible, so nobody wonders where it went,
+    // but struck through, dark and not a link.
+    const closed = (
+      <span
+        aria-disabled="true"
+        title={`${item.label} is not open yet`}
+        className={cn(
+          "flex h-11 cursor-not-allowed select-none items-center gap-3 rounded-lg px-3 text-[14px] font-medium text-subtle opacity-50 lg:h-[38px]",
+          collapsed && "justify-center px-0",
+        )}
+      >
+        <Icon className="size-[18px] shrink-0" />
+        {collapsed ? null : <span className="flex-1 truncate line-through">{item.label}</span>}
+      </span>
+    );
+    if (!collapsed) return closed;
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{closed}</TooltipTrigger>
+        <TooltipContent side="right">{item.label} (not open yet)</TooltipContent>
+      </Tooltip>
+    );
+  }
   const link = (
     <Link
       href={item.href}

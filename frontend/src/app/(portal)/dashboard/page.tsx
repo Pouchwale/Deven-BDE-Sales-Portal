@@ -26,6 +26,7 @@ import {
 import { CoverageStrip } from "@/components/dashboard/CoverageStrip";
 import { DashboardGreeting } from "@/components/dashboard/DashboardGreeting";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
 import { Card, CardBody, CardDescription, CardHeader, CardTitle } from "@/components/ui/Card";
 import { ErrorState, Skeleton } from "@/components/ui/Feedback";
 import { api } from "@/lib/api";
@@ -64,7 +65,7 @@ export default function DashboardPage() {
       />
 
       {/* ------------------------------------------- attention banner */}
-      {data && data.alerts.length > 0 ? (
+      {data && data.alerts.length > 0 && FEEDBACK_MODULE_OPEN ? (
         <Link href="/feedback" className="mb-5 block">
           <div className="flex items-start gap-3 rounded-card border border-warning/30 bg-warning-soft px-4 py-3 transition-colors hover:border-warning/50">
             <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />

@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Mada, Mulish } from "next/font/google";
 
+import { IntroSplash } from "@/components/IntroSplash";
 import { Providers } from "@/components/Providers";
+import { INTRO_INIT_SCRIPT } from "@/lib/intro";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 import "./globals.css";
@@ -35,8 +37,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Applies the stored theme before first paint. Without this the page
             renders light and then flips, which is worse than no dark mode. */}
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* Decides, also before first paint, whether the intro plays. */}
+        <script dangerouslySetInnerHTML={{ __html: INTRO_INIT_SCRIPT }} />
       </head>
       <body className="antialiased">
+        <IntroSplash />
         <Providers>{children}</Providers>
       </body>
     </html>

@@ -548,3 +548,113 @@
     box-shadow: 6px 6px 0 0 var(--stamp);
   }
 }
+
+/* ==========================================================================
+   First-load intro (components/IntroSplash.tsx, gated by lib/intro.ts)
+
+   Brand motion: colour-block wipes rather than cross-fades, the bounce ease
+   for entrances, 220/360ms steps. Transform-only, so it stays smooth on a
+   low-end phone. Hidden unless <html data-intro> is set.
+   ========================================================================== */
+.pw-intro {
+  display: none;
+}
+
+html[data-intro] body {
+  overflow: hidden;
+}
+
+html[data-intro] .pw-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--pw-ink);
+  animation: pw-intro-out 360ms cubic-bezier(0.7, 0, 0.84, 0) 1650ms both;
+}
+
+/* A tap or key press skips to the exit. */
+html[data-intro="out"] .pw-intro {
+  animation: pw-intro-out 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
+}
+
+.pw-intro-stripes {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.pw-intro-stripes > span {
+  transform-origin: bottom;
+  animation: pw-stripe-up 360ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.pw-intro-stripes > span:nth-child(2) { animation-delay: 70ms; }
+.pw-intro-stripes > span:nth-child(3) { animation-delay: 140ms; }
+.pw-intro-stripes > span:nth-child(4) { animation-delay: 210ms; }
+
+.pw-intro-wipe {
+  position: absolute;
+  inset: 0;
+  background: var(--pw-pink);
+  transform-origin: left;
+  animation: pw-wipe-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) 520ms both;
+}
+
+.pw-intro-brand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(12px, 2.4vw, 20px);
+  padding: 0 16px;
+}
+
+.pw-intro-logo {
+  width: clamp(190px, 56vw, 340px);
+  height: auto;
+  animation: pw-logo-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1) 820ms both;
+}
+
+.pw-intro-tag {
+  border: 2px solid var(--pw-ink);
+  border-radius: 999px;
+  background: var(--pw-yellow);
+  color: var(--pw-ink);
+  box-shadow: 4px 4px 0 0 var(--pw-ink);
+  padding: 6px 16px;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: clamp(13px, 3.4vw, 17px);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: pw-tag-up 220ms cubic-bezier(0.34, 1.56, 0.64, 1) 1080ms both;
+}
+
+@keyframes pw-stripe-up {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes pw-wipe-in {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes pw-logo-pop {
+  from { opacity: 0; transform: translateY(24px) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pw-tag-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pw-intro-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}

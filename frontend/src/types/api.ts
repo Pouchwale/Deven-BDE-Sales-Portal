@@ -1019,6 +1019,8 @@ export interface BackupOverview {
     alert: string | null;
   };
   tools: { pg_dump: number | null; server: string | null; compatible: boolean; problem: string | null };
+  /** Where the portal runs: the live site on Render (Linux) or a Windows PC. */
+  host: { os: "windows" | "linux"; render: boolean; example: string };
   target: { database: string; identity: string; environment: string };
   counts: { total: number; database: number; full: number; verified: number; failed: number; missing: number };
   latest_backup: BackupRecord | null;

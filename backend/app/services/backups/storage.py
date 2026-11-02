@@ -14,6 +14,7 @@ restart is worse than no backup, because it looks like one.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 import uuid
@@ -45,6 +46,25 @@ class StorageStatus:
     max_bytes: int | None = None
 
 
+#: "D:\\…" / "C:/…": a folder on a Windows PC.
+_WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def host() -> dict[str, object]:
+    """Where this portal is running, for the page's wording and examples.
+
+    The live portal runs on Render (Linux); the office PC runs Windows. A
+    folder path only means something on the machine that runs the portal.
+    """
+    windows = os.name == "nt"
+    render = bool(os.environ.get("RENDER"))
+    return {
+        "os": "windows" if windows else "linux",
+        "render": render,
+        "example": "D:\\GP3\\backups" if windows else "/var/data/backups",
+    }
+
+
 def configured_root(db: Session) -> str:
     return str(runtime_settings.get(db, "backup.storage_path") or "").strip()
 
@@ -55,9 +75,16 @@ def validate_destination(raw: str) -> Path:
     text = (raw or "").strip()
     if not text:
         raise StorageError("Choose a folder for backups.")
+    if os.name != "nt" and _WINDOWS_DRIVE.match(text):
+        # The commonest mistake on the live site: a folder on the PC the page
+        # is being viewed from. The server cannot reach that PC's drives.
+        raise StorageError(
+            f"{text[:2]}\\ is a drive on a Windows PC, not on this server. The live portal runs on "
+            "Render (Linux): use a folder on its persistent disk, e.g. /var/data/backups."
+        )
     path = Path(text).expanduser()
     if not path.is_absolute():
-        raise StorageError("Use a full folder path, e.g. D:\\GP3\\backups or /var/data/backups.")
+        raise StorageError(f"Use a full folder path, e.g. {host()['example']}.")
     resolved = path.resolve()
     temp_root = Path(tempfile.gettempdir()).resolve()
     if resolved == temp_root or temp_root in resolved.parents:

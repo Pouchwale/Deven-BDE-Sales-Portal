@@ -128,9 +128,20 @@ function BackupsInner() {
       {data && (!data.storage.available || data.tools.problem || data.storage.alert) ? (
         <div className="mb-4 space-y-2">
           {!data.storage.available ? (
-            <Notice tone="warning" title="Backup storage is not ready">
-              {data.storage.problem} Set a folder under <b>Storage</b>.
-            </Notice>
+            data.host.render ? (
+              // The live server: say plainly what is and is not covered,
+              // instead of asking for a folder it does not have yet.
+              <Notice tone="warning" title="Backups on the live server need a Render disk">
+                This page runs on Render, whose normal disk is wiped on every deploy, so it cannot keep
+                backups until a persistent disk is added (then set its folder, e.g. <b>/var/data/backups</b>,
+                under Storage). The live database is still backed up <b>every night at 02:00</b> by the office
+                PC, to <b>D:\GP3\backups\production</b>.
+              </Notice>
+            ) : (
+              <Notice tone="warning" title="Backup storage is not ready">
+                {data.storage.problem} Set a folder under <b>Storage</b>.
+              </Notice>
+            )
           ) : null}
           {data.tools.problem ? (
             <Notice tone="danger" title="PostgreSQL tools">
@@ -515,8 +526,15 @@ function StoragePanel({ data, onSaved }: { data: BackupOverview; onSaved: () => 
         <CardHeader className="block">
           <CardTitle>Storage destination</CardTitle>
           <CardDescription>
-            A permanent folder on this server, outside the project. On Render this must be a persistent disk&apos;s
-            mount path — the app&apos;s normal disk is wiped on every deploy.
+            {data.host.render ? (
+              <>
+                A folder on <b>this server</b> (Render, Linux) - not on your PC: <b>D:\</b> drives do not exist
+                here. It must be a persistent disk&apos;s mount path, because the app&apos;s normal disk is wiped
+                on every deploy.
+              </>
+            ) : (
+              <>A permanent folder on this computer, outside the project.</>
+            )}
           </CardDescription>
         </CardHeader>
         <CardBody className="space-y-3">
@@ -524,7 +542,7 @@ function StoragePanel({ data, onSaved }: { data: BackupOverview; onSaved: () => 
             <Input
               id="storage-path"
               value={path}
-              placeholder="D:\GP3\backups   or   /var/data/backups"
+              placeholder={data.host.example}
               onChange={(e) => {
                 setPath(e.target.value);
                 setResult(null);

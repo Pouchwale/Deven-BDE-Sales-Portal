@@ -118,6 +118,7 @@ def overview(actor: SuperAdminUser, db: DbSession) -> dict[str, Any]:
             "max_bytes": status.max_bytes, "alert": alert,
         },
         "tools": tools,
+        "host": storage.host(),
         "target": {"database": target.database, "identity": target.identity, "environment": settings.ENV},
         "counts": {
             "total": len(records),

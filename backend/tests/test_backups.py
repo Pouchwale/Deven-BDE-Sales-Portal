@@ -315,3 +315,28 @@ def test_schedule_runs_once_per_day_after_its_time() -> None:
     assert scheduler.due(datetime(2026, 11, 2, 3, 0), "02:30", None)
     assert not scheduler.due(datetime(2026, 11, 2, 2, 0), "02:30", None)
     assert not scheduler.due(datetime(2026, 11, 2, 3, 0), "02:30", "2026-11-02")
+
+
+def test_a_windows_folder_on_the_linux_server_gets_a_plain_answer(monkeypatch) -> None:
+    """The live site runs on Render (Linux); a D: drive is the viewer's PC."""
+    import pytest
+
+    from app.services.backups import storage
+
+    monkeypatch.setattr(storage.os, "name", "posix")
+    with pytest.raises(storage.StorageError) as refused:
+        storage.validate_destination(r"D:\GP3\backups")
+    message = str(refused.value)
+    assert "not on this server" in message and "/var/data/backups" in message
+
+
+def test_the_page_is_told_where_the_portal_runs(monkeypatch) -> None:
+    from app.services.backups import storage
+
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setattr(storage.os, "name", "posix")
+    assert storage.host() == {"os": "linux", "render": True, "example": "/var/data/backups"}
+
+    monkeypatch.delenv("RENDER")
+    monkeypatch.setattr(storage.os, "name", "nt")
+    assert storage.host() == {"os": "windows", "render": False, "example": r"D:\GP3\backups"}

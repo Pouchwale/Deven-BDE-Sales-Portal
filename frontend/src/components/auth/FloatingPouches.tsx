@@ -140,25 +140,39 @@ const PINK = "#FE4587";
 const YELLOW = "#F3E33F";
 const BLUE = "#149EDA";
 const ORANGE = "#FF561D";
-const WHITE = "#FFFFFF";
+
+/* The pouches themselves wear deeper, print-like versions of the brand
+   colours (rich on ink without toy-box brightness); the bright pops stay
+   for shadows and sparkles. One set, shared with the intro, so the pouches
+   that fly in there are the very ones that float here. */
+const DEEP = { pink: "#E0377A", blue: "#1289C0", yellow: "#EBD834", orange: "#EE4E18", white: "#F6F6F4" };
+
+export const POUCH_ART: Record<string, React.ReactNode> = {
+  standup: <StandUpPouch fill={DEEP.pink} />,
+  spout: <SpoutPouch fill={DEEP.yellow} cap={DEEP.orange} />,
+  "sachet-blue": <Sachet fill={DEEP.blue} band={DEEP.yellow} />,
+  pillow: <PillowPack fill={DEEP.orange} stripe={DEEP.white} />,
+  "sachet-white": <Sachet fill={DEEP.white} band={DEEP.pink} />,
+  "spout-small": <SpoutPouch fill={DEEP.blue} cap={DEEP.white} />,
+};
 
 const SCENES: Record<Layout, Placement[]> = {
   panel: [
-    { key: "sachet-white", left: 6, top: 11, width: 15, rotate: -14, shadow: PINK, duration: 6.4, delay: -1.2, node: <Sachet fill={WHITE} band={ORANGE} /> },
-    { key: "sachet-blue", left: 68, top: 9, width: 22, rotate: 12, shadow: ORANGE, duration: 7.2, delay: -3.1, node: <Sachet fill={BLUE} band={YELLOW} /> },
-    { key: "spout", left: 3, top: 47, width: 27, rotate: -10, shadow: PINK, duration: 6.8, delay: -2.2, node: <SpoutPouch fill={YELLOW} cap={ORANGE} /> },
-    { key: "standup", left: 31, top: 23, width: 40, rotate: 4, shadow: YELLOW, duration: 6, delay: 0, node: <StandUpPouch fill={PINK} /> },
-    { key: "pillow", left: 58, top: 71, width: 34, rotate: -9, shadow: BLUE, duration: 7.6, delay: -4.4, node: <PillowPack fill={ORANGE} stripe={WHITE} /> },
+    { key: "sachet-white", left: 6, top: 11, width: 15, rotate: -14, shadow: PINK, duration: 6.4, delay: -1.2, node: POUCH_ART["sachet-white"] },
+    { key: "sachet-blue", left: 68, top: 9, width: 22, rotate: 12, shadow: ORANGE, duration: 7.2, delay: -3.1, node: POUCH_ART["sachet-blue"] },
+    { key: "spout", left: 3, top: 47, width: 27, rotate: -10, shadow: PINK, duration: 6.8, delay: -2.2, node: POUCH_ART.spout },
+    { key: "standup", left: 31, top: 23, width: 40, rotate: 4, shadow: YELLOW, duration: 6, delay: 0, node: POUCH_ART.standup },
+    { key: "pillow", left: 58, top: 71, width: 34, rotate: -9, shadow: BLUE, duration: 7.6, delay: -4.4, node: POUCH_ART.pillow },
     { key: "spark-1", left: 25, top: 17, width: 4, rotate: 0, shadow: "transparent", duration: 3.2, delay: -0.6, node: <Sparkle fill={YELLOW} /> },
     { key: "spark-2", left: 78, top: 53, width: 5, rotate: 0, shadow: "transparent", duration: 3.8, delay: -1.8, node: <Sparkle fill={PINK} /> },
     { key: "spark-3", left: 22, top: 89, width: 3.5, rotate: 0, shadow: "transparent", duration: 3.4, delay: -2.6, node: <Sparkle fill={BLUE} /> },
     { key: "spark-4", left: 90, top: 35, width: 3, rotate: 0, shadow: "transparent", duration: 4, delay: -0.2, node: <Sparkle fill={YELLOW} /> },
   ],
   band: [
-    { key: "spout", left: 5, top: 26, width: 24, rotate: -12, shadow: PINK, duration: 6.8, delay: -2.2, node: <SpoutPouch fill={YELLOW} cap={ORANGE} /> },
-    { key: "pillow", left: 68, top: 50, width: 28, rotate: 10, shadow: BLUE, duration: 7.6, delay: -4.4, node: <PillowPack fill={ORANGE} stripe={WHITE} /> },
-    { key: "sachet-blue", left: 72, top: 4, width: 17, rotate: 14, shadow: ORANGE, duration: 7.2, delay: -3.1, node: <Sachet fill={BLUE} band={YELLOW} /> },
-    { key: "standup", left: 34, top: 10, width: 31, rotate: 3, shadow: YELLOW, duration: 6, delay: 0, node: <StandUpPouch fill={PINK} /> },
+    { key: "spout", left: 5, top: 26, width: 24, rotate: -12, shadow: PINK, duration: 6.8, delay: -2.2, node: POUCH_ART.spout },
+    { key: "pillow", left: 68, top: 50, width: 28, rotate: 10, shadow: BLUE, duration: 7.6, delay: -4.4, node: POUCH_ART.pillow },
+    { key: "sachet-blue", left: 72, top: 4, width: 17, rotate: 14, shadow: ORANGE, duration: 7.2, delay: -3.1, node: POUCH_ART["sachet-blue"] },
+    { key: "standup", left: 34, top: 10, width: 31, rotate: 3, shadow: YELLOW, duration: 6, delay: 0, node: POUCH_ART.standup },
     { key: "spark-1", left: 27, top: 8, width: 5, rotate: 0, shadow: "transparent", duration: 3.2, delay: -0.6, node: <Sparkle fill={YELLOW} /> },
     { key: "spark-2", left: 64, top: 30, width: 4.5, rotate: 0, shadow: "transparent", duration: 3.8, delay: -1.8, node: <Sparkle fill={PINK} /> },
   ],
@@ -172,6 +186,8 @@ export function FloatingPouches({ layout, className }: { layout: Layout; classNa
           <div
             key={p.key}
             className="pw-pouch absolute"
+            // The intro lands its own copy of this pouch here (IntroHandoff).
+            data-pouch={p.key.startsWith("spark") ? undefined : p.key}
             style={
               {
                 left: `${p.left}%`,

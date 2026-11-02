@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FloatingPouches } from "@/components/auth/FloatingPouches";
+import { IntroHandoff } from "@/components/auth/IntroHandoff";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
@@ -124,6 +125,7 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+      <IntroHandoff />
       {/* ------------------------------------------------ brand panel */}
       <aside className="relative hidden overflow-hidden border-r-2 border-ink bg-pw-ink lg:flex lg:flex-col lg:p-12">
         <div className="relative flex items-center gap-3">

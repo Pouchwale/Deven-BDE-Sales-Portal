@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-import { PillowPack, Sachet, SpoutPouch, StandUpPouch } from "@/components/auth/FloatingPouches";
+import { POUCH_ART } from "@/components/auth/FloatingPouches";
 
 /**
  * The first-load PouchWale ident.
@@ -11,17 +11,13 @@ import { PillowPack, Sachet, SpoutPouch, StandUpPouch } from "@/components/auth/
  * the logo and every pouch shoot upward together (the streaks stretch out
  * with the speed), and the ink lifts away with a pink layer one beat behind.
  *
+ * On the sign-in page the pouches that also float there do not fly off:
+ * IntroHandoff glides each one into its spot on the page instead, the ink
+ * lifts away behind them, and the page carries on floating them.
+ *
  * Static markup: hidden unless <html data-intro> is set by INTRO_INIT_SCRIPT,
  * and every step is a CSS keyframe in globals.css (".pw-intro").
  */
-
-/* Deeper, print-like versions of the brand colours: rich on the ink field
-   without the toy-box brightness of the full-strength pops. */
-const PINK = "#E0377A";
-const BLUE = "#1289C0";
-const YELLOW = "#EBD834";
-const ORANGE = "#EE4E18";
-const WHITE = "#F6F6F4";
 
 interface Flyer {
   key: string;
@@ -34,16 +30,15 @@ interface Flyer {
   /** When it arrives, and when it leaves, in ms. */
   delay: number;
   leave: number;
-  art: React.ReactNode;
 }
 
 const FLOCK: Flyer[] = [
-  { key: "standup", x: -36, y: -20, w: 15, r: -12, delay: 160, leave: 1700, art: <StandUpPouch fill={PINK} /> },
-  { key: "spout", x: 35, y: -23, w: 12.5, r: 13, delay: 240, leave: 1740, art: <SpoutPouch fill={YELLOW} cap={ORANGE} /> },
-  { key: "sachet-blue", x: -39, y: 21, w: 11, r: 9, delay: 320, leave: 1780, art: <Sachet fill={BLUE} band={YELLOW} /> },
-  { key: "pillow", x: 34, y: 19, w: 17, r: -9, delay: 280, leave: 1720, art: <PillowPack fill={ORANGE} stripe={WHITE} /> },
-  { key: "sachet-white", x: -30, y: -40, w: 7.5, r: -7, delay: 380, leave: 1690, art: <Sachet fill={WHITE} band={PINK} /> },
-  { key: "spout-small", x: 9, y: 36, w: 8.5, r: 10, delay: 420, leave: 1760, art: <SpoutPouch fill={BLUE} cap={WHITE} /> },
+  { key: "standup", x: -36, y: -20, w: 15, r: -12, delay: 160, leave: 1700 },
+  { key: "spout", x: 35, y: -23, w: 12.5, r: 13, delay: 240, leave: 1740 },
+  { key: "sachet-blue", x: -39, y: 21, w: 11, r: 9, delay: 320, leave: 1780 },
+  { key: "pillow", x: 34, y: 19, w: 17, r: -9, delay: 280, leave: 1720 },
+  { key: "sachet-white", x: -30, y: -40, w: 7.5, r: -7, delay: 380, leave: 1690 },
+  { key: "spout-small", x: 9, y: 36, w: 8.5, r: 10, delay: 420, leave: 1760 },
 ];
 
 /** Speed lines: "in" trails a pouch as it lands and dies away; "out" shoots
@@ -79,12 +74,15 @@ export function IntroSplash() {
   return (
     <div className="pw-intro" aria-hidden>
       <div className="pw-intro-trail" />
-      <div className="pw-intro-panel">
-        <div className="pw-intro-stage">
+      <div className="pw-intro-panel" />
+      {/* The stage is a sibling of the panel, not inside it: on the sign-in
+          page the pouches stay put and land while the ink lifts away. */}
+      <div className="pw-intro-stage">
           {FLOCK.map((f) => (
             <div
               key={f.key}
               className="pw-fly"
+              data-pouch={f.key}
               style={
                 {
                   "--x": f.x,
@@ -99,7 +97,7 @@ export function IntroSplash() {
               <div className="pw-fly-exit">
                 <Wind kind="in" />
                 <Wind kind="out" />
-                <div className="pw-fly-art">{f.art}</div>
+                <div className="pw-fly-art">{POUCH_ART[f.key]}</div>
               </div>
             </div>
           ))}
@@ -115,7 +113,6 @@ export function IntroSplash() {
             <span className="pw-intro-rule" />
             <p className="pw-intro-caption">BDE &amp; Sales Portal</p>
           </div>
-        </div>
       </div>
     </div>
   );

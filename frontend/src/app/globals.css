@@ -605,7 +605,6 @@ html[data-intro] .pw-intro {
 }
 
 .pw-intro-panel {
-  overflow: hidden;
   background: var(--pw-ink);
   animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 2000ms both;
 }
@@ -788,6 +787,35 @@ html[data-intro="out"] .pw-intro-panel {
 }
 html[data-intro="out"] .pw-intro-trail {
   animation: pw-intro-out 460ms cubic-bezier(0.76, 0, 0.24, 1) 210ms both;
+}
+
+/* ------------------------------------------- sign-in page: land */
+/* IntroHandoff switches to "land" at 1.6s: the pouches that also float on
+   the sign-in page glide into their spots (driven from script, so their
+   CSS exit is switched off), the logo leaves on its own, and the ink and
+   the pink trail lift away behind them. */
+html[data-intro="land"] .pw-intro-content {
+  animation: pw-rise-away 720ms cubic-bezier(0.55, 0, 0.85, 0.3) both;
+}
+html[data-intro="land"] .pw-intro-panel {
+  animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 100ms both;
+}
+html[data-intro="land"] .pw-intro-trail {
+  animation: pw-intro-out 650ms cubic-bezier(0.76, 0, 0.24, 1) 190ms both;
+}
+.pw-fly--land .pw-fly-exit {
+  animation: none;
+}
+.pw-fly--land .pw-wind-out {
+  animation: none;
+  opacity: 0;
+}
+
+/* The sign-in page pouches wait, hidden and still, while the intro runs;
+   when it ends they take over from the copies that landed on them. */
+html[data-intro] .pw-pouch[data-pouch] {
+  visibility: hidden;
+  animation: none;
 }
 
 /* ------------------------------------------------------- keyframes */

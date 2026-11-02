@@ -992,6 +992,9 @@ fails; then migrates and keeps the copied passwords.
 `-FromBackup <file>` refreshes from a production dump on disk
 without contacting Render.
 
+**Back-Up & Restore in the portal (Super Admin).** Database-only and full-project
+backups, verification, and a guarded restore — see `docs/BACKUP_AND_RESTORE.md`.
+
 **Local backup — on demand.** `deploy\backup\backup-local.ps1` dumps the local
 development database to `D:\GP3\backups\local-dev` (refuses a non-local URL).
 

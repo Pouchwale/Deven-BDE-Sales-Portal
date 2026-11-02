@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from app.api import (
     post_sale,
     admin,
+    backups,
     auth,
     chat,
     customers,
@@ -24,6 +25,9 @@ api_router = APIRouter(prefix="/api")
 
 # Auth and people
 api_router.include_router(auth.router)
+# Super Admin: Back-Up & Restore. Before users so /admin/backups is never
+# shadowed by a parameterised route.
+api_router.include_router(backups.router)
 api_router.include_router(users.router)
 
 # Module 1 - reference tracking.

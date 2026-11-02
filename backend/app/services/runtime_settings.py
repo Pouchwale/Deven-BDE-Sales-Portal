@@ -34,6 +34,16 @@ DEFAULTS: dict[str, tuple[str, Any]] = {
     "message.feedback_whatsapp": ("str", templates.FEEDBACK_WHATSAPP),
     "message.feedback_email_subject": ("str", templates.FEEDBACK_EMAIL_SUBJECT),
     "message.feedback_email_body": ("str", templates.FEEDBACK_EMAIL_BODY),
+    # Back-Up & Restore (Super Admin). The folder is validated before it is
+    # saved; blank falls back to BACKUP_STORAGE_ROOT, never to a temp folder.
+    "backup.storage_path": ("str", env_settings.BACKUP_STORAGE_ROOT),
+    "backup.max_storage_gb": ("float", 20.0),
+    "backup.alert_percent": ("int", 80),
+    "backup.auto_daily": ("bool", False),
+    "backup.auto_time": ("str", "02:30"),
+    "backup.keep_daily": ("int", 7),
+    "backup.keep_weekly": ("int", 4),
+    "backup.keep_monthly": ("int", 6),
 }
 
 

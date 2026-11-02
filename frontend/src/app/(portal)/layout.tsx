@@ -19,6 +19,7 @@ const TITLES: [prefix: string, title: string][] = [
   ["/references", "Reference Tracking"],
   ["/leads", "Assigned Leads"],
   ["/feedback", "Feedback & Reviews"],
+  ["/admin/backups", "Back-Up & Restore"],
   ["/notifications", "Notifications"],
   ["/customers", "Converted customers"],
   ["/team", "Team"],

@@ -29,6 +29,7 @@ from app.core.logging import configure_logging, get_logger
 from app.core.middleware import REQUEST_ID_HEADER, RequestContextMiddleware
 from app import web
 from app.services import keepalive, sap_sync, super_admin_env
+from app.services.backups import scheduler as backup_scheduler
 
 configure_logging(settings.LOG_LEVEL, settings.log_format)
 log = get_logger("app.startup")
@@ -109,8 +110,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     # Pings this service's public URL so Render's free tier never idles the
     # portal out; on by itself on Render only, never in local dev.
     keepalive.start()
+    backup_scheduler.start()
     yield
     await keepalive.stop()
+    await backup_scheduler.stop()
     sap_sync.stop()
 
 

@@ -238,6 +238,21 @@ class Settings(BaseSettings):
     #: Shown in the admin setup card. Not a secret, and not user-editable.
     CHAT_PROVIDER: str = "Groq"
 
+    # ------------------------------------------------- back-up & restore
+    #: Where backups are kept when the Super Admin has not chosen a folder in
+    #: the portal. Blank means "not configured": the module refuses to back up
+    #: rather than writing to a temporary folder that disappears. On Render,
+    #: point it at a persistent disk's mount path.
+    BACKUP_STORAGE_ROOT: str = ""
+    #: Folder holding pg_dump / pg_restore / psql. Blank: found on PATH, or
+    #: in the newest "C:/Program Files/PostgreSQL/<version>/bin" on Windows.
+    PG_BIN_DIR: str = ""
+    #: Largest file the restore page accepts, in megabytes.
+    BACKUP_MAX_UPLOAD_MB: int = 2048
+    #: Optional separate database used ONLY for test restores ("Verify with a
+    #: test restore"). Never the portal's own database; refused if it is.
+    BACKUP_TEST_DATABASE_URL: str = ""
+
     # ------------------------------------------------------------ validation
     @model_validator(mode="before")
     @classmethod

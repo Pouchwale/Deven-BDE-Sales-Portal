@@ -8,6 +8,13 @@
 import type {
   ApiErrorBody,
   AskableAccount,
+  BackupActivity,
+  BackupJob,
+  BackupOverview,
+  BackupRecord,
+  BackupSettingsInput,
+  RestoreInspection,
+  RestoreUploadResult,
   AssignableRoles,
   AssignedByMeCount,
   AuditEvent,
@@ -750,6 +757,50 @@ export const api = {
     sapSyncStatus: (signal?: AbortSignal) =>
       request<SapSyncStatus>("/api/admin/sap-sync/status", { signal }),
     sapUpload: (file: File) => upload<SapImportResult>("/api/admin/sap-import/upload", file),
+  },
+
+  /** Back-Up & Restore. Super Admin only - the API refuses everyone else. */
+  backups: {
+    overview: (signal?: AbortSignal) =>
+      request<BackupOverview>("/api/admin/backups/overview", { signal }),
+    list: (signal?: AbortSignal) => request<BackupRecord[]>("/api/admin/backups", { signal }),
+    activity: (signal?: AbortSignal) =>
+      request<BackupActivity[]>("/api/admin/backups/activity", { signal }),
+    job: (id: string, signal?: AbortSignal) =>
+      request<BackupJob>(`/api/admin/backups/jobs/${id}`, { signal }),
+    create: (type: "database" | "full") =>
+      request<BackupJob>("/api/admin/backups", { method: "POST", body: { type } }),
+    verify: (id: string, testRestore = false) =>
+      request<BackupJob>(`/api/admin/backups/${id}/verify`, {
+        method: "POST",
+        query: { test_restore: testRestore || undefined },
+      }),
+    remove: (id: string, password: string) =>
+      request<Message>(`/api/admin/backups/${id}`, { method: "DELETE", body: { password } }),
+    downloadUrl: (id: string) => `/api/admin/backups/${id}/download`,
+    testStorage: (path: string) =>
+      request<{ ok: boolean; path?: string; problem?: string; message?: string }>(
+        "/api/admin/backups/storage/test",
+        { method: "POST", body: { path } },
+      ),
+    saveSettings: (values: Partial<BackupSettingsInput>) =>
+      request<Record<string, unknown>>("/api/admin/backups/settings", {
+        method: "PATCH",
+        body: values,
+      }),
+    upload: (file: File) => upload<RestoreUploadResult>("/api/admin/backups/restore/upload", file),
+    inspect: (source: { backup_id?: string; upload_id?: string }) =>
+      request<RestoreInspection>("/api/admin/backups/restore/inspect", {
+        method: "POST",
+        body: source,
+      }),
+    restore: (body: {
+      backup_id?: string;
+      upload_id?: string;
+      password: string;
+      confirm_database: string;
+      allow_other_source: boolean;
+    }) => request<BackupJob>("/api/admin/backups/restore", { method: "POST", body }),
   },
 
   dashboard: (signal?: AbortSignal) => request<Dashboard>("/api/dashboard", { signal }),

@@ -14,6 +14,7 @@ import {
   Target,
   UserRound,
   Users,
+  DatabaseBackup,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -24,7 +25,7 @@ import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/primitives/tooltip";
 import { cn } from "@/lib/cn";
 import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
-import { canBrowseCustomers, isAdmin, isLeadership } from "@/lib/roles";
+import { canBrowseCustomers, isAdmin, isLeadership, isSuperAdmin } from "@/lib/roles";
 import type { Role } from "@/types/api";
 
 interface NavItem {
@@ -109,6 +110,13 @@ function navigation(role: Role, unread: number): { section: string; items: NavIt
           label: "Settings",
           icon: SlidersHorizontal,
           visible: isAdmin,
+        },
+        {
+          href: "/admin/backups",
+          label: "Back-Up & Restore",
+          icon: DatabaseBackup,
+          // The Super Admin alone; every /api/admin/backups route checks it too.
+          visible: isSuperAdmin,
         },
       ],
     },

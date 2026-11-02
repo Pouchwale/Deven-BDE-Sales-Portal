@@ -944,3 +944,118 @@ export type ChatEvent =
     message_id: string;
     usage: { input: number; output: number };
   };
+
+/* ------------------------------------------------------- back-up & restore */
+export interface BackupCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface BackupRecord {
+  id: string;
+  kind: "DATABASE" | "FULL";
+  source: "manual" | "scheduled" | "pre-restore" | "uploaded";
+  status: "RUNNING" | "VERIFIED" | "FAILED";
+  file: string | null;
+  file_present?: boolean;
+  size_bytes: number | null;
+  sha256: string | null;
+  created_at: string;
+  finished_at: string | null;
+  created_by: { id: string | null; name: string } | null;
+  verification: { ok: boolean; checks: BackupCheck[]; at: string } | null;
+  verified_at: string | null;
+  error: string | null;
+  git_commit: string | null;
+  pg_version: string | null;
+  database: string | null;
+  deleted_at: string | null;
+}
+
+export interface BackupJob {
+  id: string;
+  kind: string;
+  title: string;
+  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "INTERRUPTED";
+  step: string;
+  percent: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+}
+
+export interface BackupActivity {
+  at: string;
+  action: string;
+  actor: { id: string | null; name: string } | null;
+  [key: string]: unknown;
+}
+
+export interface BackupSettingsInput {
+  storage_path: string;
+  max_storage_gb: number;
+  alert_percent: number;
+  auto_daily: boolean;
+  auto_time: string;
+  keep_daily: number;
+  keep_weekly: number;
+  keep_monthly: number;
+}
+
+export interface BackupOverview {
+  storage: {
+    configured: boolean;
+    path: string | null;
+    label: string;
+    available: boolean;
+    problem: string | null;
+    used_bytes: number;
+    free_bytes: number | null;
+    total_bytes: number | null;
+    max_bytes: number | null;
+    alert: string | null;
+  };
+  tools: { pg_dump: number | null; server: string | null; compatible: boolean; problem: string | null };
+  target: { database: string; identity: string; environment: string };
+  counts: { total: number; database: number; full: number; verified: number; failed: number; missing: number };
+  latest_backup: BackupRecord | null;
+  latest_restore: BackupActivity | null;
+  active_job: BackupJob | null;
+  settings: Record<string, unknown>;
+}
+
+export interface RestoreInspection {
+  source: {
+    label: string;
+    kind: "DATABASE" | "FULL";
+    size_bytes: number;
+    sha256: string | null;
+    manifest_ok?: boolean;
+    application_commit?: string | null;
+    created_at?: string | null;
+    file_count?: number | null;
+  };
+  dump: {
+    readable: boolean;
+    archive_dbname: string | null;
+    dumped_from: string | null;
+    created: string | null;
+    table_data: number;
+    tables: number;
+    indexes: number;
+    constraints: number;
+    problem: string | null;
+  };
+  checksum_ok: boolean;
+  target: { database: string; identity: string; environment: string };
+  same_source: boolean;
+  restorable: boolean;
+}
+
+export interface RestoreUploadResult {
+  upload: { upload_id: string; kind: "DATABASE" | "FULL"; original_name: string; size_bytes: number };
+  inspection: RestoreInspection;
+}

@@ -432,6 +432,16 @@ class AuditAction(StrEnum):
     # One row per tool the assistant ran, so an answer can be traced back to
     # the reads that produced it.
     CHAT_TOOL_INVOKED = "CHAT_TOOL_INVOKED"
+    # Back-Up & Restore (Super Admin only).
+    BACKUP_CREATED = "BACKUP_CREATED"
+    BACKUP_FAILED = "BACKUP_FAILED"
+    BACKUP_VERIFIED = "BACKUP_VERIFIED"
+    BACKUP_DELETED = "BACKUP_DELETED"
+    BACKUP_DOWNLOADED = "BACKUP_DOWNLOADED"
+    BACKUP_STORAGE_CHANGED = "BACKUP_STORAGE_CHANGED"
+    BACKUP_RESTORE_STARTED = "BACKUP_RESTORE_STARTED"
+    BACKUP_RESTORED = "BACKUP_RESTORED"
+    BACKUP_RESTORE_FAILED = "BACKUP_RESTORE_FAILED"
 
 
 class EntityType(StrEnum):
@@ -444,6 +454,7 @@ class EntityType(StrEnum):
     SETTING = "SETTING"
     IMPORT = "IMPORT"
     CHAT = "CHAT"
+    BACKUP = "BACKUP"
 
 
 # ----------------------------------------------------------- error codes

@@ -23,8 +23,8 @@ const body = Mulish({ subsets: ["latin"], variable: "--font-mulish", display: "s
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#FAF1A6" },
-    { media: "(prefers-color-scheme: dark)", color: "#111111" },
+    { media: "(prefers-color-scheme: light)", color: "#F4F4F5" },
+    { media: "(prefers-color-scheme: dark)", color: "#121214" },
   ],
 };
 

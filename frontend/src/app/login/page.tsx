@@ -135,8 +135,8 @@ export default function LoginPage() {
         />
 
         <div className="relative flex items-center gap-3">
-          <BrandLogo size={44} className="ring-2 ring-pw-yellow" />
-          <div>
+          <BrandLogo height={44} tone="onDark" />
+          <div className="border-l-2 border-white/25 pl-3">
             <p className="font-[family-name:var(--font-display)] text-[17px] font-black uppercase leading-none text-white">BDE &amp; Sales Portal</p>
             <p className="mt-1 text-[12px] font-extrabold uppercase leading-tight tracking-[0.06em] text-pw-yellow">Pouchwale · Mehsana</p>
           </div>
@@ -181,7 +181,7 @@ export default function LoginPage() {
       <main className="flex items-center justify-center px-5 py-12 sm:px-8">
         <div className="w-full max-w-sm animate-fade-up">
           <div className="mb-8 lg:hidden">
-            <BrandLogo size={48} />
+            <BrandLogo height={44} />
           </div>
 
           <h1 className="text-[30px] font-black leading-none text-content">Welcome back</h1>

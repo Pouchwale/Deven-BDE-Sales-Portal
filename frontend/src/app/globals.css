@@ -52,12 +52,13 @@
   --brand-900: color-mix(in srgb, var(--pw-pink-shade) 60%, var(--pw-ink));
   --brand-950: color-mix(in srgb, var(--pw-pink-shade) 40%, var(--pw-ink));
 
-  /* The page is a flat yellow-tint field; cards and controls are white. */
-  --bg: color-mix(in srgb, var(--pw-yellow-tint) 55%, white);
-  --bg-subtle: color-mix(in srgb, var(--pw-yellow-tint) 75%, white);
+  /* A quiet near-white page so the pop colours do the talking; cards and
+     controls are pure white with ink outlines. */
+  --bg: #F4F4F5;
+  --bg-subtle: #ECECEE;
   --surface: var(--pw-white);
-  --surface-2: color-mix(in srgb, var(--pw-yellow-tint) 30%, white);
-  --surface-hover: color-mix(in srgb, var(--pw-yellow-tint) 50%, white);
+  --surface-2: #F7F7F8;
+  --surface-hover: #F0F0F2;
 
   /* Dividers inside a card stay quiet; outlines use --ink (2px). */
   --line: color-mix(in srgb, var(--pw-ink) 16%, white);
@@ -91,21 +92,23 @@
 .dark {
   color-scheme: dark;
 
-  --bg: var(--pw-ink);
-  --bg-subtle: color-mix(in srgb, var(--pw-ink) 92%, white);
-  --surface: color-mix(in srgb, var(--pw-ink) 90%, white);
-  --surface-2: color-mix(in srgb, var(--pw-ink) 85%, white);
-  --surface-hover: color-mix(in srgb, var(--pw-ink) 80%, white);
+  /* Layered charcoal: page darkest, cards one step up, controls another.
+     Outlines are a soft grey rather than a colour, and the stamp is a true
+     black offset, so the pop colours stay reserved for actions and state. */
+  --bg: #121214;
+  --bg-subtle: #18181B;
+  --surface: #1C1C20;
+  --surface-2: #232328;
+  --surface-hover: #2A2A30;
 
-  --line: color-mix(in srgb, var(--pw-ink) 72%, white);
-  --line-strong: color-mix(in srgb, var(--pw-ink) 55%, white);
-  /* Ink borders and stamps would vanish on ink: they turn yellow. */
-  --ink: var(--pw-yellow);
-  --stamp: var(--pw-yellow);
+  --line: #2E2E34;
+  --line-strong: #3F3F46;
+  --ink: #55555E;
+  --stamp: #000000;
 
-  --text: var(--pw-white);
-  --text-muted: color-mix(in srgb, var(--pw-white) 78%, var(--pw-ink));
-  --text-subtle: color-mix(in srgb, var(--pw-white) 58%, var(--pw-ink));
+  --text: #F2F2F3;
+  --text-muted: #B4B4BB;
+  --text-subtle: #8A8A93;
   --text-inverse: var(--pw-ink);
 
   --brand-700: var(--pw-pink-tint);

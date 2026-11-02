@@ -1,24 +1,21 @@
 /**
- * The PouchWale intro that plays once when the site is first opened.
+ * The PouchWale intro that plays on every full page load: opening the site,
+ * or refreshing any page, the sign-in page included. Moving between pages
+ * inside the portal (including the step from sign-in to the dashboard) is
+ * not a page load, so it does not replay there.
  *
- * Whether it plays is decided by this script in <head>, before first paint,
- * the same way the theme is - so a visitor who has already seen it in this
- * tab never gets a flash of the splash, and one who has not never sees the
- * page underneath first. CSS shows the splash only while <html data-intro>
- * is set; this script clears it when the exit animation ends (or on a tap,
- * which skips straight to the exit).
+ * It is switched on by this script in <head>, before first paint, the same
+ * way the theme is, so the page underneath never shows first. CSS shows the
+ * splash only while <html data-intro> is set; this script clears it when the
+ * exit animation ends (or on a tap, which skips straight to the exit).
  *
  * Skipped entirely for anyone who has asked for reduced motion.
  */
-const SEEN_KEY = "pw-intro-seen";
-
 export const INTRO_INIT_SCRIPT = `
 (function () {
   try {
     var root = document.documentElement;
-    if (sessionStorage.getItem(${JSON.stringify(SEEN_KEY)})) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    sessionStorage.setItem(${JSON.stringify(SEEN_KEY)}, "1");
     root.dataset.intro = "play";
 
     var done = false;

@@ -203,7 +203,16 @@ const ARRIVES: Record<string, number> = {
 };
 const SPARKLES_FROM = 780;
 
-export function FloatingPouches({ layout, className }: { layout: Layout; className?: string }) {
+export function FloatingPouches({
+  layout,
+  className,
+  leaving = false,
+}: {
+  layout: Layout;
+  className?: string;
+  /** Signed in: the pouches take off on the wind (".pw-takeoff"). */
+  leaving?: boolean;
+}) {
   const sparkles = SCENES[layout].filter((p) => p.key.startsWith("spark")).map((p) => p.key);
   return (
     <div className={className} aria-hidden>
@@ -224,22 +233,28 @@ export function FloatingPouches({ layout, className }: { layout: Layout; classNa
                   width: `${p.width}%`,
                   "--in": `${arrives}ms`,
                   "--enter": layout === "panel" ? "85vh" : "260px",
+                  "--leave": layout === "panel" ? "-120vh" : "-340px",
                 } as React.CSSProperties
               }
             >
               {spark >= 0 ? null : <Wind kind="in" />}
-              <div
-                className="pw-pouch relative"
-                style={
-                  {
-                    "--r": `${p.rotate}deg`,
-                    "--shadow": p.shadow,
-                    "--dur": `${p.duration}s`,
-                    "--delay": `${p.delay}s`,
-                  } as React.CSSProperties
-                }
-              >
-                {p.node}
+              {/* Mounted only for the take-off, so its gust starts then. */}
+              {leaving && spark < 0 ? <Wind kind="out" /> : null}
+              {/* The cursor's push (usePouchMagnet) and the hover lift. */}
+              <div className="pw-react">
+                <div
+                  className="pw-pouch relative"
+                  style={
+                    {
+                      "--r": `${p.rotate}deg`,
+                      "--shadow": p.shadow,
+                      "--dur": `${p.duration}s`,
+                      "--delay": `${p.delay}s`,
+                    } as React.CSSProperties
+                  }
+                >
+                  {spark >= 0 ? p.node : <div className="pw-flutter">{p.node}</div>}
+                </div>
               </div>
             </div>
           );

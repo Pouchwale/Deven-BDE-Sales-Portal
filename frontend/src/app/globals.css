@@ -673,6 +673,29 @@ html[data-intro] .pw-intro {
   animation-delay: 200ms;
 }
 
+/* The torn strip flicks in from above-left like a tab being pulled, swings
+   past its spot and settles - pivoting on its own centre (41.8% 47.3% of
+   the wordmark canvas). */
+.pw-intro-tear {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.pw-intro-tear .pw-intro-word {
+  top: 0;
+  transform-origin: 41.8% 47.3%;
+  animation: pw-tear-flick 780ms cubic-bezier(0.22, 1, 0.36, 1) 700ms both;
+}
+
+/* Soft film, not cardboard: a pouch flutters on the way in, its wobble
+   dying away, then squashes a touch as it lands and springs back. Shared
+   by the intro flock and the sign-in pouches; timed by --in and the
+   flight's own duration. */
+.pw-flutter {
+  transform-origin: 50% 70%;
+  animation: pw-flutter var(--fly-dur, 1150ms) linear var(--in, 0ms) both;
+}
+
 .pw-intro-rule {
   display: block;
   width: clamp(200px, 58vw, 380px);
@@ -706,24 +729,43 @@ html[data-intro] .pw-intro {
    The wind sits outside the tilt, so streaks always point straight down
    the line of flight. */
 .pw-fly {
+  --fly-dur: 1100ms;
+  --exit-dur: 700ms;
   position: absolute;
   left: 50%;
   top: 50%;
   width: calc(var(--w) * var(--ws) * 1vmin);
   will-change: transform;
-  animation: pw-fly-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+  animation: pw-fly-in var(--fly-dur) cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+}
+
+/* Depth without blur: the back row is smaller, dimmer (sinking into the
+   ink), slower in and out, and passes behind the logo; the front row is the
+   biggest and quickest and passes in front of it. */
+.pw-fly[data-depth="far"] {
+  --fly-dur: 1500ms;
+  --exit-dur: 1000ms;
+  z-index: 0;
+}
+.pw-fly[data-depth="far"] .pw-fly-exit {
+  opacity: 0.5;
+}
+.pw-fly[data-depth="near"] {
+  --fly-dur: 950ms;
+  --exit-dur: 600ms;
+  z-index: 2;
 }
 
 .pw-fly-exit {
   position: relative;
   will-change: transform;
-  animation: pw-fly-out 700ms cubic-bezier(0.55, 0, 0.85, 0.3) var(--out) both;
+  animation: pw-fly-out var(--exit-dur) cubic-bezier(0.55, 0, 0.85, 0.3) var(--out) both;
 }
 
 .pw-fly-art {
   position: relative;
   transform: rotate(var(--r));
-  animation: pw-tilt-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+  animation: pw-tilt-in var(--fly-dur) cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
 }
 
 .pw-wind {
@@ -753,7 +795,7 @@ html[data-intro] .pw-intro {
 
 /* Strong while a pouch is moving, gone once it has landed... */
 .pw-wind-in {
-  animation: pw-wind-settle 1000ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+  animation: pw-wind-settle var(--fly-dur, 1000ms) cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
 }
 
 /* ...and long and bright again as it shoots off. */
@@ -819,8 +861,108 @@ html[data-intro="play"] :is(.pw-pouch-in, .pw-spark-in, .pw-reveal) {
 }
 
 /* Arriving pouches sit above their own streaks. */
-.pw-pouch-in > .pw-pouch {
+.pw-pouch-in > .pw-react {
+  position: relative;
   z-index: 1;
+}
+
+/* The cursor's push (--mx/--my from usePouchMagnet) and, on a pouch you
+   point at, a lift with a slight turn and a deeper stamp shadow. Eased, so
+   the scene breathes with the mouse rather than twitching after it. */
+.pw-react {
+  transform: translate(var(--mx, 0px), calc(var(--my, 0px) + var(--lift, 0px)))
+    rotate(var(--hr, 0deg)) scale(var(--hs, 1));
+  transition: transform 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pw-pouch-in > .pw-react:hover {
+    --lift: -12px;
+    --hr: -4deg;
+    --hs: 1.06;
+    transition-duration: 320ms;
+  }
+  .pw-pouch-in > .pw-react:hover .pw-pouch {
+    --sh: 11px;
+  }
+}
+
+/* ---------------------------------------- sign-in page: take-off */
+/* Signed in: the pouches lift off on the wind they came in on (bottom of
+   the scene first), long streaks behind them, sparkles wink out and the
+   form rises away - then the dashboard slides in (data-arrive below). */
+.pw-takeoff .pw-pouch-in {
+  --out: calc(var(--in) * 0.5);
+  animation: pw-takeoff 760ms cubic-bezier(0.55, 0, 0.85, 0.3) var(--out) both;
+}
+
+.pw-takeoff .pw-spark-in {
+  animation: pw-spark-out 260ms cubic-bezier(0.55, 0, 0.85, 0.3) both;
+}
+
+.pw-takeoff .pw-reveal {
+  animation: pw-form-out 440ms cubic-bezier(0.55, 0, 0.85, 0.3) 300ms both;
+}
+
+@keyframes pw-takeoff {
+  from { transform: none; }
+  to { transform: translateY(var(--leave, -120vh)) rotate(8deg); }
+}
+
+@keyframes pw-spark-out {
+  to { opacity: 0; transform: scale(0) rotate(90deg); }
+}
+
+@keyframes pw-form-out {
+  to { opacity: 0; transform: translateY(-28px); }
+}
+
+/* Arriving on the dashboard from sign-in: the page slides up into place on
+   the same expo curve, a little further than the usual page entrance. */
+html[data-arrive] main.page-enter {
+  animation: pw-page-arrive 760ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pw-page-arrive {
+  from { opacity: 0; transform: translateY(56px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------ the pouch spinner */
+.pw-pouch-spinner {
+  transform-origin: 50% 55%;
+  animation: pw-pouch-spin 1050ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes pw-pouch-spin {
+  0% { transform: rotateY(0deg) translateY(0); }
+  50% { transform: rotateY(180deg) translateY(-2px); }
+  100% { transform: rotateY(360deg) translateY(0); }
+}
+
+/* ------------------------------------- dashboard welcome card */
+/* The greeting rises from behind a mask the way the intro's wordmark does;
+   the date leads, the quote follows. */
+.pw-greet-mask {
+  display: block;
+  overflow: hidden;
+  /* room for descenders under the heavy display face */
+  padding-bottom: 0.12em;
+  margin-bottom: -0.12em;
+}
+
+.pw-greet-line {
+  display: block;
+  animation: pw-greet-rise 760ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
+}
+
+.pw-greet-in {
+  animation: pw-caption-in 520ms cubic-bezier(0.16, 1, 0.3, 1) var(--d, 0ms) both;
+}
+
+@keyframes pw-greet-rise {
+  from { transform: translateY(105%); }
+  to { transform: none; }
 }
 
 @keyframes pw-pouch-arrive {
@@ -837,8 +979,14 @@ html[data-intro="play"] :is(.pw-pouch-in, .pw-spark-in, .pw-reveal) {
 @media (prefers-reduced-motion: reduce) {
   .pw-pouch-in,
   .pw-spark-in,
-  .pw-pouch-in .pw-wind {
+  .pw-flutter,
+  .pw-pouch-in .pw-wind,
+  .pw-greet-line,
+  .pw-greet-in {
     animation: none;
+  }
+  .pw-react {
+    transition: none;
   }
   .pw-pouch-in .pw-wind {
     opacity: 0;
@@ -846,6 +994,26 @@ html[data-intro="play"] :is(.pw-pouch-in, .pw-spark-in, .pw-reveal) {
 }
 
 /* ------------------------------------------------------- keyframes */
+@keyframes pw-tear-flick {
+  0% { opacity: 0; transform: translate(-7%, -16%) rotate(-32deg) scale(1.2); }
+  45% { opacity: 1; transform: translate(0.5%, 1.2%) rotate(8deg) scale(1); }
+  68% { transform: rotate(-3.5deg); }
+  84% { transform: rotate(1.4deg); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes pw-flutter {
+  0% { transform: rotate(-7deg) skewX(4deg); }
+  10% { transform: rotate(6deg) skewX(-3deg); }
+  20% { transform: rotate(-5deg) skewX(2deg); }
+  30% { transform: rotate(3deg) skewX(-1deg); }
+  40% { transform: rotate(-1deg); }
+  50% { transform: scale(1.06, 0.92); }
+  62% { transform: scale(0.97, 1.04); }
+  74% { transform: scale(1.01, 0.99); }
+  100% { transform: none; }
+}
+
 @keyframes pw-line-rise {
   from { transform: translateY(62%); }
   to { transform: translateY(0); }
@@ -922,7 +1090,8 @@ html[data-intro="play"] :is(.pw-pouch-in, .pw-spark-in, .pw-reveal) {
    ========================================================================== */
 .pw-pouch {
   transform: rotate(var(--r, 0deg));
-  filter: drop-shadow(7px 7px 0 var(--shadow, transparent));
+  filter: drop-shadow(var(--sh, 7px) var(--sh, 7px) 0 var(--shadow, transparent));
+  transition: filter 320ms cubic-bezier(0.22, 1, 0.36, 1);
   animation: pw-float var(--dur, 6s) ease-in-out var(--delay, 0s) infinite;
   will-change: transform;
 }

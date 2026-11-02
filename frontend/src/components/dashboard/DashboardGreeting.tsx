@@ -68,13 +68,18 @@ export function DashboardGreeting({
     >
       <div className="relative flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
         <div className="min-w-0">
-          <p className="text-[11.5px] font-extrabold uppercase tracking-[0.08em] text-brand-600 dark:text-brand-300">
+          <p className="pw-greet-in text-[11.5px] font-extrabold uppercase tracking-[0.08em] text-brand-600 dark:text-brand-300">
             {today}
           </p>
           <h1 className="mt-1 text-[30px] font-black leading-[0.95] text-content sm:text-[40px]">
-            {hello}
+            {/* Rises from behind a mask, like the intro wordmark. */}
+            <span className="pw-greet-mask">
+              <span className="pw-greet-line">{hello}</span>
+            </span>
           </h1>
-          <p className="mt-1.5 max-w-xl border-l-2 border-brand-200 pl-3 text-[13.5px] italic leading-relaxed text-muted dark:border-brand-900">
+          <p
+            style={{ "--d": "420ms" } as React.CSSProperties}
+            className="pw-greet-in mt-1.5 max-w-xl border-l-2 border-brand-200 pl-3 text-[13.5px] italic leading-relaxed text-muted dark:border-brand-900">
             {quote}
           </p>
         </div>

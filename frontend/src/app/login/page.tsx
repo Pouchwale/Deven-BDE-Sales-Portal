@@ -1,9 +1,10 @@
 "use client";
 
-import { ArrowRight, Eye, EyeOff, Lock, Network, ShieldCheck, UserRound } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { FloatingPouches } from "@/components/auth/FloatingPouches";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
@@ -124,16 +125,7 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
       {/* ------------------------------------------------ brand panel */}
-      <aside className="relative hidden overflow-hidden border-r-2 border-ink bg-pw-ink lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <div
-          className="absolute -right-16 -top-16 size-56 rounded-full border-2 border-white/15 bg-pw-pink"
-          aria-hidden
-        />
-        <div
-          className="absolute -bottom-20 left-1/3 size-40 rounded-full bg-pw-blue"
-          aria-hidden
-        />
-
+      <aside className="relative hidden overflow-hidden border-r-2 border-ink bg-pw-ink lg:flex lg:flex-col lg:p-12">
         <div className="relative flex items-center gap-3">
           <BrandLogo height={44} tone="onDark" />
           <div className="border-l-2 border-white/25 pl-3">
@@ -142,46 +134,19 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <div className="relative max-w-md">
-          <h2 className="text-[46px] font-black leading-[0.92] text-pw-yellow">
-            One reporting chain,
-            <br />
-            enforced everywhere.
-          </h2>
-          <p className="mt-4 text-[14px] font-semibold leading-relaxed text-white/80">
-            Managers see their own subtree at any depth — nothing sideways, nothing above.
-            Every list, every counter and every dashboard applies the same scope.
-          </p>
-
-          <ul className="mt-8 space-y-3.5">
-            {[
-              { icon: Network, text: "Reporting hierarchy three levels deep" },
-              { icon: ShieldCheck, text: "Nobody can act on someone who outranks them" },
-              { icon: Lock, text: "Every authority-gated change is audited" },
-            ].map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-center gap-3 text-[13.5px] font-bold text-white">
-                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-pw-yellow">
-                  <Icon className="size-4 text-pw-ink" aria-hidden />
-                </span>
-                {text}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* No counts here. A hardcoded "17 accounts" on the sign-in page is a
-            number nobody maintains, and it contradicted every screen behind
-            the login the moment the lead book grew. */}
-        <p className="relative text-[12px] font-semibold text-white/55">
-          Leads, references and customer feedback in one place.
-        </p>
+        {/* The pouches are the picture: what the company makes, in its own colours. */}
+        <FloatingPouches layout="panel" className="relative mx-auto mt-6 min-h-0 w-full max-w-[560px] flex-1" />
       </aside>
 
       {/* ------------------------------------------------------- form */}
       <main className="flex items-center justify-center px-5 py-12 sm:px-8">
         <div className="w-full max-w-sm animate-fade-up">
-          <div className="mb-8 lg:hidden">
-            <BrandLogo height={44} />
+          {/* Phone: the same pouches, in a short band above the form. */}
+          <div className="relative mb-7 overflow-hidden rounded-[20px] border-2 border-ink bg-pw-ink card-shadow lg:hidden">
+            <div className="absolute left-4 top-4 z-10">
+              <BrandLogo height={26} tone="onDark" />
+            </div>
+            <FloatingPouches layout="band" className="relative mx-auto mt-10 aspect-[16/9] w-full max-w-[420px]" />
           </div>
 
           <h1 className="text-[30px] font-black leading-none text-content">Welcome back</h1>

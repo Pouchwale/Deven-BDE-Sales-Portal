@@ -658,3 +658,26 @@ html[data-intro="out"] .pw-intro {
   from { transform: translateY(0); }
   to { transform: translateY(-100%); }
 }
+
+/* ==========================================================================
+   Floating pouches on the sign-in page (components/auth/FloatingPouches.tsx)
+
+   A slow bob and sway per pouch, each on its own period and phase so they
+   never move in step. Hard offset shadow in a contrasting brand colour,
+   since an ink shadow vanishes on the ink panel. Still for reduced motion.
+   ========================================================================== */
+.pw-pouch {
+  transform: rotate(var(--r, 0deg));
+  filter: drop-shadow(7px 7px 0 var(--shadow, transparent));
+  animation: pw-float var(--dur, 6s) ease-in-out var(--delay, 0s) infinite;
+  will-change: transform;
+}
+
+@keyframes pw-float {
+  0%, 100% { transform: translateY(0) rotate(var(--r, 0deg)); }
+  50% { transform: translateY(-14px) rotate(calc(var(--r, 0deg) + 3deg)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-pouch { animation: none; }
+}

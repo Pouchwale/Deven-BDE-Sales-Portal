@@ -222,7 +222,7 @@ export default function LoginPage() {
             just behind the pouches (globals.css). */}
         <div className="pw-reveal w-full max-w-sm animate-fade-up">
           {/* Phone: the same pouches, in a short band above the form. */}
-          <div className="relative mb-7 overflow-hidden rounded-[20px] border-2 border-ink bg-pw-ink card-shadow lg:hidden">
+          <div className="pw-pouch-card relative mb-7 overflow-hidden rounded-[20px] border-2 border-ink bg-pw-ink card-shadow lg:hidden">
             <div className="absolute left-4 top-4 z-10">
               <BrandLogo height={26} tone="onDark" />
             </div>

@@ -192,6 +192,62 @@ const SCENES: Record<Layout, Placement[]> = {
   ],
 };
 
+/* -------------------------------------------------- the climb */
+
+/** Streaks streaming out under a pouch that is still climbing. Each line
+ *  runs on its own period, so the stream never pulses in step. */
+function Trail() {
+  return (
+    <span className="pw-trail">
+      <i style={{ "--t": "1.15s", "--td": "-0.2s" } as React.CSSProperties} />
+      <i style={{ "--t": "1.45s", "--td": "-0.9s" } as React.CSSProperties} />
+      <i style={{ "--t": "1.05s", "--td": "-0.5s" } as React.CSSProperties} />
+      <i style={{ "--t": "1.6s", "--td": "-1.1s" } as React.CSSProperties} />
+    </span>
+  );
+}
+
+/* Air rushing down past the flock: x (%), length (px), speed (s), phase
+   (s), strength. Fixed numbers rather than random ones, so the server and
+   the browser draw the same scene. */
+const AIR: [number, number, number, number, number][] = [
+  [4, 90, 1.9, -0.3, 0.22],
+  [11, 140, 1.4, -1.1, 0.3],
+  [19, 70, 2.3, -0.8, 0.18],
+  [27, 120, 1.6, -1.5, 0.26],
+  [34, 60, 2.1, -0.2, 0.16],
+  [42, 150, 1.3, -0.9, 0.32],
+  [50, 80, 2.0, -1.7, 0.2],
+  [57, 130, 1.5, -0.4, 0.28],
+  [65, 65, 2.4, -1.2, 0.17],
+  [72, 110, 1.7, -0.6, 0.25],
+  [80, 150, 1.35, -1.4, 0.3],
+  [87, 75, 2.2, -0.1, 0.19],
+  [94, 120, 1.55, -1.0, 0.24],
+  [61, 50, 2.6, -2.0, 0.14],
+];
+
+function Airflow() {
+  return (
+    <span className="pw-air">
+      {AIR.map(([x, length, speed, phase, strength], i) => (
+        <i
+          key={i}
+          style={
+            {
+              left: `${x}%`,
+              height: `${length}px`,
+              "--t": `${speed}s`,
+              "--td": `${phase}s`,
+              "--a": strength,
+            } as React.CSSProperties
+          }
+        />
+      ))}
+    </span>
+  );
+}
+
 /* When each one arrives, in ms after the cue: bottom of the scene first, so
    the flock rises behind the lifting intro curtain; sparkles once landed. */
 const ARRIVES: Record<string, number> = {
@@ -217,6 +273,8 @@ export function FloatingPouches({
   return (
     <div className={className} aria-hidden>
       <div className="relative size-full">
+        {/* Behind everything: the air the flock is climbing through. */}
+        <Airflow />
         {SCENES[layout].map((p) => {
           const spark = sparkles.indexOf(p.key);
           const arrives = spark >= 0 ? SPARKLES_FROM + spark * 90 : (ARRIVES[p.key] ?? 200);
@@ -242,6 +300,8 @@ export function FloatingPouches({
               {leaving && spark < 0 ? <Wind kind="out" /> : null}
               {/* The cursor's push (usePouchMagnet) and the hover lift. */}
               <div className="pw-react">
+                {/* Still climbing: a stream of white wind beneath it. */}
+                {spark >= 0 ? null : <Trail />}
                 <div
                   className="pw-pouch relative"
                   style={

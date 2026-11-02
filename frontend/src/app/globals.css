@@ -552,9 +552,15 @@
 /* ==========================================================================
    First-load intro (components/IntroSplash.tsx, gated by lib/intro.ts)
 
-   Brand motion: colour-block wipes rather than cross-fades, the bounce ease
-   for entrances, 220/360ms steps. Transform-only, so it stays smooth on a
-   low-end phone. Hidden unless <html data-intro> is set.
+   One idea per beat, on a single expo-out curve so it reads as one gesture:
+     100ms   "POUCH" rises from behind its mask
+     200ms   "WALE" follows
+     650ms   a pink rule draws left to right
+     850ms   the caption settles in
+    1600ms   content lifts off
+    1700ms   the ink curtain rises, the pink trail one beat behind it
+   Transform-only (and one short opacity), so it holds 60fps on a low-end
+   phone. Hidden unless <html data-intro> is set.
    ========================================================================== */
 .pw-intro {
   display: none;
@@ -568,92 +574,145 @@ html[data-intro] .pw-intro {
   position: fixed;
   inset: 0;
   z-index: 200;
+  display: block;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.pw-intro-trail,
+.pw-intro-panel {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.pw-intro-trail {
+  background: var(--pw-pink);
+  animation: pw-intro-out 650ms cubic-bezier(0.76, 0, 0.24, 1) 1790ms both;
+}
+
+.pw-intro-panel {
   display: grid;
   place-items: center;
-  overflow: hidden;
   background: var(--pw-ink);
-  animation: pw-intro-out 360ms cubic-bezier(0.7, 0, 0.84, 0) 1650ms both;
+  animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 1700ms both;
 }
 
-/* A tap or key press skips to the exit. */
-html[data-intro="out"] .pw-intro {
-  animation: pw-intro-out 220ms cubic-bezier(0.7, 0, 0.84, 0) both;
-}
-
-.pw-intro-stripes {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-}
-
-.pw-intro-stripes > span {
-  transform-origin: bottom;
-  animation: pw-stripe-up 360ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-.pw-intro-stripes > span:nth-child(2) { animation-delay: 70ms; }
-.pw-intro-stripes > span:nth-child(3) { animation-delay: 140ms; }
-.pw-intro-stripes > span:nth-child(4) { animation-delay: 210ms; }
-
-.pw-intro-wipe {
-  position: absolute;
-  inset: 0;
-  background: var(--pw-pink);
-  transform-origin: left;
-  animation: pw-wipe-in 360ms cubic-bezier(0.2, 0.8, 0.2, 1) 520ms both;
-}
-
-.pw-intro-brand {
-  position: relative;
+.pw-intro-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(12px, 2.4vw, 20px);
-  padding: 0 16px;
+  padding: 0 24px;
+  animation: pw-content-out 300ms cubic-bezier(0.5, 0, 0.75, 0) 1600ms both;
 }
 
+/* The wordmark, cut into its two lines. Each line is a fixed window
+   (overflow hidden) the artwork slides up into, so the edge of the mask
+   never moves - only the letters do. */
 .pw-intro-logo {
-  width: clamp(190px, 56vw, 340px);
-  height: auto;
-  animation: pw-logo-pop 360ms cubic-bezier(0.34, 1.56, 0.64, 1) 820ms both;
+  position: relative;
+  width: clamp(200px, 58vw, 380px);
+  aspect-ratio: 379 / 160;
 }
 
-.pw-intro-tag {
-  border: 2px solid var(--pw-ink);
+.pw-intro-half {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+}
+
+.pw-intro-half-top {
+  top: 0;
+  height: 52.2%;
+}
+
+.pw-intro-half-bottom {
+  bottom: 0;
+  height: 47.8%;
+}
+
+.pw-intro-word {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  animation: pw-line-rise 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.pw-intro-half-top .pw-intro-word {
+  top: 0;
+  animation-delay: 100ms;
+}
+
+.pw-intro-half-bottom .pw-intro-word {
+  bottom: 0;
+  animation-delay: 200ms;
+}
+
+.pw-intro-rule {
+  display: block;
+  width: clamp(200px, 58vw, 380px);
+  height: 3px;
+  margin-top: clamp(18px, 3vw, 26px);
   border-radius: 999px;
-  background: var(--pw-yellow);
-  color: var(--pw-ink);
-  box-shadow: 4px 4px 0 0 var(--pw-ink);
-  padding: 6px 16px;
-  font-family: var(--font-display);
-  font-weight: 900;
-  font-size: clamp(13px, 3.4vw, 17px);
-  letter-spacing: 0.02em;
+  background: var(--pw-pink);
+  transform-origin: left;
+  animation: pw-rule-draw 620ms cubic-bezier(0.16, 1, 0.3, 1) 650ms both;
+}
+
+.pw-intro-caption {
+  margin-top: 14px;
+  color: rgb(255 255 255 / 0.72);
+  font-family: var(--font-sans);
+  font-size: clamp(10.5px, 2.8vw, 12.5px);
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  /* letter-spacing pads the right edge too; this keeps it optically centred */
+  margin-right: -0.34em;
   text-transform: uppercase;
   white-space: nowrap;
-  animation: pw-tag-up 220ms cubic-bezier(0.34, 1.56, 0.64, 1) 1080ms both;
+  animation: pw-caption-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 850ms both;
 }
 
-@keyframes pw-stripe-up {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
+/* A tap or key press (before the exit has begun) skips to a quick exit. */
+html[data-intro="out"] .pw-intro-content {
+  animation: pw-content-out 180ms cubic-bezier(0.5, 0, 0.75, 0) both;
+}
+html[data-intro="out"] .pw-intro-panel {
+  animation: pw-curtain-up 460ms cubic-bezier(0.76, 0, 0.24, 1) 60ms both;
+}
+html[data-intro="out"] .pw-intro-trail {
+  animation: pw-intro-out 460ms cubic-bezier(0.76, 0, 0.24, 1) 130ms both;
 }
 
-@keyframes pw-wipe-in {
+@keyframes pw-line-rise {
+  from { transform: translateY(62%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes pw-rule-draw {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
 }
 
-@keyframes pw-logo-pop {
-  from { opacity: 0; transform: translateY(24px) scale(0.6); }
+@keyframes pw-caption-in {
+  from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: none; }
 }
 
-@keyframes pw-tag-up {
-  from { opacity: 0; transform: translateY(14px); }
-  to { opacity: 1; transform: none; }
+@keyframes pw-content-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-28px); }
 }
 
+@keyframes pw-curtain-up {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+/* The last thing to move; lib/intro.ts clears the splash when it ends. */
 @keyframes pw-intro-out {
   from { transform: translateY(0); }
   to { transform: translateY(-100%); }

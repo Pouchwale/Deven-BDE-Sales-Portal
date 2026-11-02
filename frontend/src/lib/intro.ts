@@ -30,8 +30,11 @@ export const INTRO_INIT_SCRIPT = `
     function onEnd(event) {
       if (event.animationName === "pw-intro-out") finish();
     }
+    var started = Date.now();
     function skip() {
-      if (root.dataset.intro === "play") root.dataset.intro = "out";
+      // Once the curtain is already rising (1.6s in), let it finish:
+      // switching to the quick exit then would snap it back down first.
+      if (root.dataset.intro === "play" && Date.now() - started < 1550) root.dataset.intro = "out";
     }
     document.addEventListener("animationend", onEnd);
     document.addEventListener("pointerdown", skip, true);

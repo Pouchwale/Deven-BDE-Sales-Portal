@@ -16,6 +16,7 @@ from app.api import (
     leads,
     notifications,
     references,
+    sap_push,
     timeline,
     users,
     work_queue,
@@ -56,3 +57,5 @@ api_router.include_router(notifications.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(chat.router)
 api_router.include_router(admin.router)
+# Signed by the office PC that refreshes the SAP workbook - no user session.
+api_router.include_router(sap_push.router)

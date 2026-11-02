@@ -44,6 +44,9 @@ PUBLIC_ROUTES = {
     ("POST", "/api/auth/logout"),
     # Its own door: an HMAC signature, tested in test_feedback_sync.py.
     ("POST", "/api/feedback/sync/webhook"),
+    # Same kind of door for the office PC's SAP workbook push: HMAC signed
+    # with SAP_PUSH_SECRET, off without it; tested in test_sap_push.py.
+    ("POST", "/api/admin/sap-import/push"),
 }
 
 

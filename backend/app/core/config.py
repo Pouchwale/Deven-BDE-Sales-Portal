@@ -428,6 +428,8 @@ class Settings(BaseSettings):
                 "writes it and refuses it from visitors; X-Forwarded-For keeps "
                 "whatever a visitor sent"
             )
+        if self.SAP_PUSH_SECRET.strip() and len(self.SAP_PUSH_SECRET.strip()) < 32:
+            warnings.append("SAP_PUSH_SECRET should be at least 32 characters")
         if self.GOOGLE_SYNC_SECRET.strip() and len(self.GOOGLE_SYNC_SECRET.strip()) < 32:
             warnings.append("GOOGLE_SYNC_SECRET should be at least 32 characters")
         if self.DOCS_ENABLED:
@@ -464,6 +466,12 @@ class Settings(BaseSettings):
             if name and name not in models:
                 models.append(name)
         return models
+
+    @property
+    def sap_push_enabled(self) -> bool:
+        """Without a secret there is nothing to verify against, so the push
+        route refuses everything rather than accepting anything."""
+        return bool(self.SAP_PUSH_SECRET.strip())
 
     @cached_property
     def feedback_sync_enabled(self) -> bool:
@@ -562,6 +570,13 @@ class Settings(BaseSettings):
     #: Watch SAP_DATA_FILE and import every new save automatically.
     SAP_AUTO_SYNC: bool = True
     SAP_SYNC_INTERVAL_SECONDS: int = 30
+    #: Shared secret for POST /api/admin/sap-import/push: the office PC that
+    #: refreshes the SAP workbook signs each upload with it (deploy/sync/
+    #: sap_uploader.py). Blank switches the route off. Env only, never
+    #: app_settings - a secret an admin page can read back is a lost secret.
+    SAP_PUSH_SECRET: str = ""
+    #: How far a push's clock may be out of step before it is refused.
+    SAP_PUSH_MAX_SKEW_SECONDS: int = 300
 
     # ----------------------------------------------------------- keepalive
     #: Ping this service's own public URL on a timer so Render's free tier

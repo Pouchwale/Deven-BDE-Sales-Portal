@@ -2,8 +2,18 @@
 
 The workbook is refreshed on this computer (it lives in OneDrive), but the
 portal runs on a server that cannot see this computer's files. This script
-bridges the two: whenever the workbook changes, it uploads it to the portal
-through the same Super Admin "Upload SAP file" import the web page uses.
+bridges the two: whenever the workbook changes, it sends it to the portal,
+which runs the same import as the Super Admin "Upload SAP file" button.
+
+Two ways to prove who is sending:
+
+  signed (preferred)  POST /api/admin/sap-import/push, signed with
+                      SAP_PUSH_SECRET - no password anywhere on this PC. The
+                      secret is kept encrypted for this Windows account
+                      (DPAPI) by deploy/sync/set-sap-push-secret.ps1, and the
+                      same value is set on the server.
+  sign-in (fallback)  PORTAL_USERNAME / PORTAL_PASSWORD of a Super Admin, used
+                      only when no push secret is available.
 
 The import on the server is idempotent - re-sending an unchanged row creates
 nothing - so an extra upload is harmless.
@@ -21,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import http.cookies
 import json
 import os
@@ -36,6 +47,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CONFIG_FILE = HERE / "sap-uploader.env"
+#: Written by set-sap-push-secret.ps1: the secret, DPAPI-encrypted for the
+#: Windows account (PowerShell ConvertFrom-SecureString output).
+SECRET_FILE = Path(os.environ.get("LOCALAPPDATA", str(HERE))) / "BDEPortal" / "sap-push-secret.dpapi"
 STATE_FILE = Path(os.environ.get("LOCALAPPDATA", str(HERE))) / "bde-portal" / "sap-uploader-state.json"
 LOG_FILE = STATE_FILE.parent / "sap-uploader.log"
 
@@ -65,14 +79,56 @@ def load_config() -> dict[str, str]:
                 continue
             key, value = line.split("=", 1)
             config[key.strip()] = value.strip().strip('"').strip("'")
-    for key in ("PORTAL_URL", "PORTAL_USERNAME", "PORTAL_PASSWORD", "SAP_FILE", "CHECK_MINUTES"):
+    for key in ("PORTAL_URL", "PORTAL_USERNAME", "PORTAL_PASSWORD", "SAP_FILE", "CHECK_MINUTES", "SAP_PUSH_SECRET"):
         if os.environ.get(key):
             config[key] = os.environ[key]
-    missing = [k for k in ("PORTAL_URL", "PORTAL_USERNAME", "PORTAL_PASSWORD", "SAP_FILE") if not config.get(k)]
+    if not config.get("SAP_PUSH_SECRET"):
+        secret = read_dpapi_secret(SECRET_FILE)
+        if secret:
+            config["SAP_PUSH_SECRET"] = secret
+    required = ["PORTAL_URL", "SAP_FILE"]
+    if not config.get("SAP_PUSH_SECRET"):
+        required += ["PORTAL_USERNAME", "PORTAL_PASSWORD"]
+    missing = [k for k in required if not config.get(k)]
     if missing:
-        sys.exit(f"Missing in {CONFIG_FILE.name}: {', '.join(missing)}")
+        sys.exit(
+            f"Missing in {CONFIG_FILE.name}: {', '.join(missing)}"
+            " (or run set-sap-push-secret.ps1 to use the signed push instead of a password)"
+        )
     config["PORTAL_URL"] = config["PORTAL_URL"].rstrip("/")
     return config
+
+
+def read_dpapi_secret(path: Path) -> str:
+    """Decrypt the secret saved by set-sap-push-secret.ps1. Blank if absent.
+
+    PowerShell's ConvertFrom-SecureString (no key) writes the DPAPI blob of
+    the UTF-16 text as hex; only this Windows account on this PC can open it.
+    """
+    try:
+        text = path.read_text(encoding="ascii").strip()
+    except OSError:
+        return ""
+    if not text or os.name != "nt":
+        return ""
+    import ctypes
+    from ctypes import wintypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    raw = bytes.fromhex(text)
+    buffer = ctypes.create_string_buffer(raw, len(raw))
+    blob_in = DataBlob(len(raw), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_char)))
+    blob_out = DataBlob()
+    if not ctypes.windll.crypt32.CryptUnprotectData(
+        ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+    ):
+        raise RuntimeError(f"could not decrypt {path.name} - was it saved by another Windows account?")
+    try:
+        return ctypes.string_at(blob_out.pbData, blob_out.cbData).decode("utf-16-le").strip()
+    finally:
+        ctypes.windll.kernel32.LocalFree(blob_out.pbData)
 
 
 def load_state() -> dict:
@@ -182,6 +238,38 @@ def upload(config: dict[str, str], session: str, path: Path, filename: str) -> d
         raise RuntimeError(f"upload refused ({exc.code}): {detail}") from None
 
 
+def sign(body: bytes, secret: str, timestamp: int | None = None) -> str:
+    """X-Portal-Signature for a push. The server's twin: app/api/sap_push.py."""
+    stamp = int(time.time()) if timestamp is None else timestamp
+    digest = hmac.new(secret.encode(), f"{stamp}.".encode() + body, hashlib.sha256).hexdigest()
+    return f"t={stamp},v1={digest}"
+
+
+def push(config: dict[str, str], path: Path, filename: str) -> dict:
+    """Send the workbook to the signed push route. No session, no password."""
+    content = path.read_bytes()
+    try:
+        with request(
+            f"{config['PORTAL_URL']}/api/admin/sap-import/push",
+            data=content,
+            headers={
+                "Content-Type": "application/octet-stream",
+                "X-Sap-Filename": filename,
+                "X-Portal-Signature": sign(content, config["SAP_PUSH_SECRET"]),
+            },
+            method="POST",
+        ) as response:
+            return json.loads(response.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", "replace")[:500]
+        hint = ""
+        if exc.code == 401:
+            hint = " - the secret here and SAP_PUSH_SECRET on the server do not match (or this PC's clock is off)"
+        elif exc.code == 503:
+            hint = " - SAP_PUSH_SECRET is not set on the server yet"
+        raise RuntimeError(f"push refused ({exc.code}){hint}: {detail}") from None
+
+
 # -------------------------------------------------------------------- run
 def run_once(config: dict[str, str], *, force: bool) -> bool:
     source = Path(config["SAP_FILE"])
@@ -203,12 +291,16 @@ def run_once(config: dict[str, str], *, force: bool) -> bool:
             state["size_mtime"] = [stat.st_size, stat.st_mtime]
             save_state(state)
             return True  # saved again, but the content is the same
-        log(f"workbook changed - uploading {source.name}")
-        session = sign_in(config)
-        try:
-            result = upload(config, session, copy, source.name)
-        finally:
-            sign_out(config, session)
+        if config.get("SAP_PUSH_SECRET"):
+            log(f"workbook changed - pushing {source.name} (signed)")
+            result = push(config, copy, source.name)
+        else:
+            log(f"workbook changed - uploading {source.name} (sign-in)")
+            session = sign_in(config)
+            try:
+                result = upload(config, session, copy, source.name)
+            finally:
+                sign_out(config, session)
     finally:
         copy.unlink(missing_ok=True)
 

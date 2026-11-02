@@ -1,6 +1,6 @@
 import Image from "next/image";
 
-import { POUCH_ART } from "@/components/auth/FloatingPouches";
+import { POUCH_ART, Wind } from "@/components/auth/FloatingPouches";
 
 /**
  * The first-load PouchWale ident.
@@ -11,9 +11,10 @@ import { POUCH_ART } from "@/components/auth/FloatingPouches";
  * the logo and every pouch shoot upward together (the streaks stretch out
  * with the speed), and the ink lifts away with a pink layer one beat behind.
  *
- * On the sign-in page the pouches that also float there do not fly off:
- * IntroHandoff glides each one into its spot on the page instead, the ink
- * lifts away behind them, and the page carries on floating them.
+ * As the ink starts to lift, the intro marks <html data-intro="reveal">:
+ * on the sign-in page that is the cue for the page's own pouches to fly
+ * up from below on the same wind and settle into their float, so the two
+ * read as one continuous movement.
  *
  * Static markup: hidden unless <html data-intro> is set by INTRO_INIT_SCRIPT,
  * and every step is a CSS keyframe in globals.css (".pw-intro").
@@ -40,19 +41,6 @@ const FLOCK: Flyer[] = [
   { key: "sachet-white", x: -30, y: -40, w: 7.5, r: -7, delay: 380, leave: 1690 },
   { key: "spout-small", x: 9, y: 36, w: 8.5, r: 10, delay: 420, leave: 1760 },
 ];
-
-/** Speed lines: "in" trails a pouch as it lands and dies away; "out" shoots
- *  long behind it as it leaves. Two sets, because one cannot fade out and
- *  come back brighter through a parent that is already transparent. */
-function Wind({ kind, lines = 4 }: { kind: "in" | "out"; lines?: number }) {
-  return (
-    <span className={`pw-wind pw-wind-${kind}`}>
-      {Array.from({ length: lines }, (_, i) => (
-        <i key={i} />
-      ))}
-    </span>
-  );
-}
 
 function WordmarkHalf({ half }: { half: "top" | "bottom" }) {
   return (
@@ -82,7 +70,6 @@ export function IntroSplash() {
             <div
               key={f.key}
               className="pw-fly"
-              data-pouch={f.key}
               style={
                 {
                   "--x": f.x,

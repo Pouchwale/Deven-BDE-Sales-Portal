@@ -789,33 +789,60 @@ html[data-intro="out"] .pw-intro-trail {
   animation: pw-intro-out 460ms cubic-bezier(0.76, 0, 0.24, 1) 210ms both;
 }
 
-/* ------------------------------------------- sign-in page: land */
-/* IntroHandoff switches to "land" at 1.6s: the pouches that also float on
-   the sign-in page glide into their spots (driven from script, so their
-   CSS exit is switched off), the logo leaves on its own, and the ink and
-   the pink trail lift away behind them. */
-html[data-intro="land"] .pw-intro-content {
-  animation: pw-rise-away 720ms cubic-bezier(0.55, 0, 0.85, 0.3) both;
-}
-html[data-intro="land"] .pw-intro-panel {
-  animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 100ms both;
-}
-html[data-intro="land"] .pw-intro-trail {
-  animation: pw-intro-out 650ms cubic-bezier(0.76, 0, 0.24, 1) 190ms both;
-}
-.pw-fly--land .pw-fly-exit {
-  animation: none;
-}
-.pw-fly--land .pw-wind-out {
-  animation: none;
-  opacity: 0;
-}
-
-/* The sign-in page pouches wait, hidden and still, while the intro runs;
-   when it ends they take over from the copies that landed on them. */
-html[data-intro] .pw-pouch[data-pouch] {
+/* ------------------------------------- sign-in page: the flock lands */
+/* When the ink starts to lift, the intro sets data-intro="reveal"
+   (lib/intro.ts). Until then the sign-in page's pouches, sparkles and form
+   wait unseen; on the cue the pouches fly up from below on the same wind
+   the intro's flock just left on, settle into their float, the sparkles
+   twinkle in, and the form rises last. Without an intro (reduced motion,
+   or the cue already given) they simply play on load. */
+html[data-intro="play"] :is(.pw-pouch-in, .pw-spark-in, .pw-reveal) {
   visibility: hidden;
   animation: none;
+}
+
+.pw-pouch-in {
+  will-change: transform;
+  animation: pw-pouch-arrive 1150ms cubic-bezier(0.16, 1, 0.3, 1) var(--in, 0ms) both;
+}
+
+/* Desktop: the form rises just after the pouches. On a phone the pouch card
+   is part of the form column, so it comes straight in with its pouches. */
+@media (min-width: 64rem) {
+  .pw-reveal {
+    animation-delay: 380ms;
+  }
+}
+
+.pw-spark-in {
+  animation: pw-spark-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) var(--in, 0ms) both;
+}
+
+/* Arriving pouches sit above their own streaks. */
+.pw-pouch-in > .pw-pouch {
+  z-index: 1;
+}
+
+@keyframes pw-pouch-arrive {
+  from { opacity: 0; transform: translateY(var(--enter, 85vh)) rotate(-16deg) scale(0.86); }
+  10% { opacity: 1; }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes pw-spark-pop {
+  from { opacity: 0; transform: scale(0) rotate(-90deg); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-pouch-in,
+  .pw-spark-in,
+  .pw-pouch-in .pw-wind {
+    animation: none;
+  }
+  .pw-pouch-in .pw-wind {
+    opacity: 0;
+  }
 }
 
 /* ------------------------------------------------------- keyframes */

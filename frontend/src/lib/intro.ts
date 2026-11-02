@@ -24,11 +24,18 @@ export const INTRO_INIT_SCRIPT = `
       done = true;
       delete root.dataset.intro;
       document.removeEventListener("animationend", onEnd);
+      document.removeEventListener("animationstart", onStart);
       document.removeEventListener("pointerdown", skip, true);
       document.removeEventListener("keydown", skip, true);
     }
     function onEnd(event) {
       if (event.animationName === "pw-intro-out") finish();
+    }
+    // The moment the ink starts to lift, cue the page underneath (the
+    // sign-in pouches fly in on it). Fired by the animation itself, so it
+    // is in step with what is on screen, however slowly the page loaded.
+    function onStart(event) {
+      if (event.animationName === "pw-curtain-up" && root.dataset.intro === "play") root.dataset.intro = "reveal";
     }
     var started = Date.now();
     function skip() {
@@ -37,6 +44,7 @@ export const INTRO_INIT_SCRIPT = `
       if (root.dataset.intro === "play" && Date.now() - started < 1600) root.dataset.intro = "out";
     }
     document.addEventListener("animationend", onEnd);
+    document.addEventListener("animationstart", onStart);
     document.addEventListener("pointerdown", skip, true);
     document.addEventListener("keydown", skip, true);
     // Never let the splash outstay its welcome, whatever happens to the

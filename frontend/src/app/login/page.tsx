@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { FloatingPouches } from "@/components/auth/FloatingPouches";
-import { IntroHandoff } from "@/components/auth/IntroHandoff";
 import { BrandLogo } from "@/components/layout/BrandLogo";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Form";
@@ -125,7 +124,6 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
-      <IntroHandoff />
       {/* ------------------------------------------------ brand panel */}
       <aside className="relative hidden overflow-hidden border-r-2 border-ink bg-pw-ink lg:flex lg:flex-col lg:p-12">
         <div className="relative flex items-center gap-3">
@@ -142,7 +140,9 @@ export default function LoginPage() {
 
       {/* ------------------------------------------------------- form */}
       <main className="flex items-center justify-center px-5 py-12 sm:px-8">
-        <div className="w-full max-w-sm animate-fade-up">
+        {/* pw-reveal: waits for the intro to start lifting, then rises in
+            just behind the pouches (globals.css). */}
+        <div className="pw-reveal w-full max-w-sm animate-fade-up">
           {/* Phone: the same pouches, in a short band above the form. */}
           <div className="relative mb-7 overflow-hidden rounded-[20px] border-2 border-ink bg-pw-ink card-shadow lg:hidden">
             <div className="absolute left-4 top-4 z-10">

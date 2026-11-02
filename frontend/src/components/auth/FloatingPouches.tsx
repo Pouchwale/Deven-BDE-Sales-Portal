@@ -121,6 +121,20 @@ function Sparkle({ fill }: { fill: string }) {
   );
 }
 
+/** Speed lines: "in" trails a pouch as it arrives and dies away; "out" shoots
+ *  long behind it as it leaves. Two sets, because one cannot fade out and
+ *  come back brighter through a parent that is already transparent. Timed
+ *  by --in / --out on an ancestor (globals.css, ".pw-wind"). */
+export function Wind({ kind, lines = 4 }: { kind: "in" | "out"; lines?: number }) {
+  return (
+    <span className={`pw-wind pw-wind-${kind}`}>
+      {Array.from({ length: lines }, (_, i) => (
+        <i key={i} />
+      ))}
+    </span>
+  );
+}
+
 /* ------------------------------------------------------------ scenes */
 
 interface Placement {
@@ -178,31 +192,58 @@ const SCENES: Record<Layout, Placement[]> = {
   ],
 };
 
+/* When each one arrives, in ms after the cue: bottom of the scene first, so
+   the flock rises behind the lifting intro curtain; sparkles once landed. */
+const ARRIVES: Record<string, number> = {
+  pillow: 120,
+  spout: 190,
+  standup: 260,
+  "sachet-blue": 330,
+  "sachet-white": 400,
+};
+const SPARKLES_FROM = 780;
+
 export function FloatingPouches({ layout, className }: { layout: Layout; className?: string }) {
+  const sparkles = SCENES[layout].filter((p) => p.key.startsWith("spark")).map((p) => p.key);
   return (
     <div className={className} aria-hidden>
       <div className="relative size-full">
-        {SCENES[layout].map((p) => (
-          <div
-            key={p.key}
-            className="pw-pouch absolute"
-            // The intro lands its own copy of this pouch here (IntroHandoff).
-            data-pouch={p.key.startsWith("spark") ? undefined : p.key}
-            style={
-              {
-                left: `${p.left}%`,
-                top: `${p.top}%`,
-                width: `${p.width}%`,
-                "--r": `${p.rotate}deg`,
-                "--shadow": p.shadow,
-                "--dur": `${p.duration}s`,
-                "--delay": `${p.delay}s`,
-              } as React.CSSProperties
-            }
-          >
-            {p.node}
-          </div>
-        ))}
+        {SCENES[layout].map((p) => {
+          const spark = sparkles.indexOf(p.key);
+          const arrives = spark >= 0 ? SPARKLES_FROM + spark * 90 : (ARRIVES[p.key] ?? 200);
+          return (
+            // Outer: the entrance (fly up on the wind, or twinkle in).
+            // Inner: the endless float, tilt and stamp shadow.
+            <div
+              key={p.key}
+              className={spark >= 0 ? "pw-spark-in absolute" : "pw-pouch-in absolute"}
+              style={
+                {
+                  left: `${p.left}%`,
+                  top: `${p.top}%`,
+                  width: `${p.width}%`,
+                  "--in": `${arrives}ms`,
+                  "--enter": layout === "panel" ? "85vh" : "260px",
+                } as React.CSSProperties
+              }
+            >
+              {spark >= 0 ? null : <Wind kind="in" />}
+              <div
+                className="pw-pouch relative"
+                style={
+                  {
+                    "--r": `${p.rotate}deg`,
+                    "--shadow": p.shadow,
+                    "--dur": `${p.duration}s`,
+                    "--delay": `${p.delay}s`,
+                  } as React.CSSProperties
+                }
+              >
+                {p.node}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

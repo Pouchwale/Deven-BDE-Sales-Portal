@@ -337,7 +337,7 @@ function NavLink({
         "transition-colors duration-[140ms]",
         collapsed && "justify-center px-0",
         active
-          ? "border-ink bg-action font-extrabold text-pw-ink shadow-[2px_2px_0_0_var(--stamp)]"
+          ? "border-ink bg-pw-pink font-extrabold text-pw-ink shadow-[2px_2px_0_0_var(--stamp)]"
           : "border-transparent font-semibold text-muted hover:bg-pw-yellow hover:text-pw-ink",
       )}
     >

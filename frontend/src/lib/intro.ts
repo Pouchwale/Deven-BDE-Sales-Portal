@@ -9,8 +9,16 @@
  * splash only while <html data-intro> is set; this script clears it when the
  * exit animation ends (or on a tap, which skips straight to the exit).
  *
+ * The animation waits, on its plain ink field, until the wordmark images
+ * and the web fonts are loaded and decoded (<html data-intro-ready>): on a
+ * real network they arrive a few hundred milliseconds after first paint,
+ * and starting without them made the logo pop in halfway through its rise.
+ * It never waits longer than READY_CAP_MS.
+ *
  * Skipped entirely for anyone who has asked for reduced motion.
  */
+const READY_CAP_MS = 1200;
+
 export const INTRO_INIT_SCRIPT = `
 (function () {
   try {
@@ -19,10 +27,12 @@ export const INTRO_INIT_SCRIPT = `
     root.dataset.intro = "play";
 
     var done = false;
+    var started = 0;
     function finish() {
       if (done) return;
       done = true;
       delete root.dataset.intro;
+      delete root.dataset.introReady;
       document.removeEventListener("animationend", onEnd);
       document.removeEventListener("animationstart", onStart);
       document.removeEventListener("pointerdown", skip, true);
@@ -37,19 +47,43 @@ export const INTRO_INIT_SCRIPT = `
     function onStart(event) {
       if (event.animationName === "pw-curtain-up" && root.dataset.intro === "play") root.dataset.intro = "reveal";
     }
-    var started = Date.now();
     function skip() {
       // Once the flock is already leaving (1.6s in), let it finish:
       // switching to the quick exit then would snap it back down first.
-      if (root.dataset.intro === "play" && Date.now() - started < 1600) root.dataset.intro = "out";
+      if (root.dataset.intro === "play" && (!started || Date.now() - started < 1600)) root.dataset.intro = "out";
     }
     document.addEventListener("animationend", onEnd);
     document.addEventListener("animationstart", onStart);
     document.addEventListener("pointerdown", skip, true);
     document.addEventListener("keydown", skip, true);
-    // Never let the splash outstay its welcome, whatever happens to the
-    // animation events (a background tab, a stylesheet that is late).
-    setTimeout(finish, 4500);
+
+    // Start the clock only once the logo can actually be drawn.
+    var go = false;
+    function begin() {
+      if (go || done) return;
+      go = true;
+      started = Date.now();
+      root.dataset.introReady = "1";
+      // Never let the splash outstay its welcome, whatever happens to the
+      // animation events (a background tab, a stylesheet that is late).
+      setTimeout(finish, 4500);
+    }
+    setTimeout(begin, ${READY_CAP_MS});
+    function whenLoaded() {
+      var waits = [];
+      var images = document.querySelectorAll(".pw-intro-logo img");
+      for (var i = 0; i < images.length; i++) {
+        var img = images[i];
+        waits.push(img.decode ? img.decode().catch(function () {}) : Promise.resolve());
+      }
+      if (document.fonts && document.fonts.ready) waits.push(document.fonts.ready);
+      Promise.all(waits).then(begin, begin);
+    }
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", whenLoaded);
+    } else {
+      whenLoaded();
+    }
   } catch (e) {}
 })();
 `;

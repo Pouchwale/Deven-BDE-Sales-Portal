@@ -595,6 +595,15 @@ html[data-intro] body {
   overflow: hidden;
 }
 
+/* Hold the whole intro on its ink field until the wordmark images and fonts
+   are ready (lib/intro.ts sets data-intro-ready, within 1.2s at most). A
+   paused animation does not run down its delay either, so every beat keeps
+   its place in the sequence. */
+html[data-intro]:not([data-intro-ready]) .pw-intro,
+html[data-intro]:not([data-intro-ready]) .pw-intro * {
+  animation-play-state: paused !important;
+}
+
 html[data-intro] .pw-intro {
   position: fixed;
   inset: 0;
@@ -649,21 +658,20 @@ html[data-intro] .pw-intro {
   aspect-ratio: 1136 / 480;
 }
 
+/* Both lines are the same full-size layer, clipped at one shared line
+   (52.2%). Windows of their own height would land on fractional pixels and
+   could leave a hairline seam, or shift one line by a pixel, at rest. */
 .pw-intro-half {
   position: absolute;
-  left: 0;
-  right: 0;
-  overflow: hidden;
+  inset: 0;
 }
 
 .pw-intro-half-top {
-  top: 0;
-  height: 52.2%;
+  clip-path: inset(0 0 47.8% 0);
 }
 
 .pw-intro-half-bottom {
-  bottom: 0;
-  height: 47.8%;
+  clip-path: inset(52.2% 0 0 0);
 }
 
 .pw-intro-word {
@@ -681,7 +689,7 @@ html[data-intro] .pw-intro {
 }
 
 .pw-intro-half-bottom .pw-intro-word {
-  bottom: 0;
+  top: 0;
   animation-delay: 200ms;
 }
 

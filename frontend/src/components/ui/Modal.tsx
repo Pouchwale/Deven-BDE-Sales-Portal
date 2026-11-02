@@ -98,8 +98,8 @@ export function Modal({
   return createPortal(
     <div
       className={cn(
-        "fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/45 p-0",
-        "backdrop-blur-[2px] sm:items-center sm:p-4",
+        "fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/55 p-0",
+        "sm:items-center sm:p-4",
         closing ? "animate-fade-out" : "animate-fade-in",
       )}
       onMouseDown={onBackdropClick}
@@ -116,17 +116,17 @@ export function Modal({
         aria-label={title}
         tabIndex={-1}
         className={cn(
-          "w-full rounded-t-2xl border border-line bg-surface card-shadow-lg",
-          "focus:outline-none sm:rounded-2xl",
+          "w-full rounded-t-[20px] border-2 border-ink bg-surface card-shadow-lg",
+          "focus:outline-none sm:rounded-[20px]",
           closing ? "animate-scale-out" : "animate-scale-in",
           SIZES[size],
         )}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b-2 border-ink px-5 py-4">
           <div className="min-w-0">
-            <h2 className="text-[15px] font-semibold text-content">{title}</h2>
+            <h2 className="text-[19px] font-black leading-none text-content">{title}</h2>
             {description ? (
-              <p className="mt-0.5 text-[13px] leading-snug text-muted">{description}</p>
+              <p className="mt-1.5 text-[13px] font-semibold leading-snug text-muted">{description}</p>
             ) : null}
           </div>
           <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close">
@@ -144,7 +144,7 @@ export function Modal({
         {footer ? (
           <div
             className={cn(
-              "flex items-center gap-2 border-t border-line bg-surface-2 px-5 py-3.5",
+              "flex items-center gap-2 border-t-2 border-ink bg-surface-2 px-5 py-3.5 rounded-b-[18px]",
               // Stacked and full-width on a phone: two 90px buttons in the
               // corner of a 390px screen are a thumb-stretch away from each
               // other, and the primary action should be the easy one.

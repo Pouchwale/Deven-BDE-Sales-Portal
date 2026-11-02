@@ -16,83 +16,113 @@
    change to this file and nothing else.
    ========================================================================== */
 
+/* PouchWale design system (.claude/skills/pouchwale-design): four equal pop
+   colours - yellow, pink, blue, orange - with white as the only neutral and
+   ink for type. Flat fields, chunky ink borders, hard offset "stamp" shadows,
+   no gradients and no soft blur. Every colour below is a brand token or is
+   mixed from them; nothing off-palette. */
 :root {
   color-scheme: light;
 
-  /* Brand: indigo through iris. */
-  --brand-50: oklch(0.971 0.014 286);
-  --brand-100: oklch(0.941 0.031 286);
-  --brand-200: oklch(0.894 0.056 286);
-  --brand-300: oklch(0.822 0.094 286);
-  --brand-400: oklch(0.724 0.146 286);
-  --brand-500: oklch(0.625 0.194 286);
-  --brand-600: oklch(0.548 0.213 286);
-  --brand-700: oklch(0.476 0.199 286);
-  --brand-800: oklch(0.403 0.161 286);
-  --brand-900: oklch(0.341 0.124 286);
-  --brand-950: oklch(0.229 0.082 286);
+  --pw-yellow: #F3E33F;
+  --pw-pink: #FE4587;
+  --pw-blue: #149EDA;
+  --pw-orange: #FF561D;
+  --pw-white: #FFFFFF;
+  --pw-ink: #111111;
+  --pw-yellow-tint: #FAF1A6;
+  --pw-yellow-shade: #D9C92A;
+  --pw-pink-tint: #FFB5D1;
+  --pw-pink-shade: #D52A6C;
+  --pw-blue-tint: #9CD9EE;
+  --pw-blue-shade: #0E7BAB;
+  --pw-orange-tint: #FFB59A;
+  --pw-orange-shade: #DB3E0B;
 
-  /* Surfaces — a hair warm, so white cards read as cards. */
-  --bg: oklch(0.977 0.002 286);
-  --bg-subtle: oklch(0.958 0.003 286);
-  --surface: oklch(1 0 0);
-  --surface-2: oklch(0.985 0.002 286);
-  --surface-hover: oklch(0.968 0.004 286);
+  /* "Brand" = the action colour: PouchWale pink, light tints to deep shades. */
+  --brand-50: color-mix(in srgb, var(--pw-pink) 7%, white);
+  --brand-100: color-mix(in srgb, var(--pw-pink) 14%, white);
+  --brand-200: var(--pw-pink-tint);
+  --brand-300: color-mix(in srgb, var(--pw-pink) 70%, white);
+  --brand-400: color-mix(in srgb, var(--pw-pink) 85%, white);
+  --brand-500: var(--pw-pink);
+  --brand-600: var(--pw-pink-shade);
+  --brand-700: color-mix(in srgb, var(--pw-pink-shade) 86%, var(--pw-ink));
+  --brand-800: color-mix(in srgb, var(--pw-pink-shade) 80%, var(--pw-ink));
+  --brand-900: color-mix(in srgb, var(--pw-pink-shade) 60%, var(--pw-ink));
+  --brand-950: color-mix(in srgb, var(--pw-pink-shade) 40%, var(--pw-ink));
 
-  --line: oklch(0.916 0.004 286);
-  --line-strong: oklch(0.861 0.006 286);
+  /* The page is a flat yellow-tint field; cards and controls are white. */
+  --bg: color-mix(in srgb, var(--pw-yellow-tint) 55%, white);
+  --bg-subtle: color-mix(in srgb, var(--pw-yellow-tint) 75%, white);
+  --surface: var(--pw-white);
+  --surface-2: color-mix(in srgb, var(--pw-yellow-tint) 30%, white);
+  --surface-hover: color-mix(in srgb, var(--pw-yellow-tint) 50%, white);
 
-  --text: oklch(0.216 0.011 286);
-  --text-muted: oklch(0.482 0.011 286);
-  --text-subtle: oklch(0.629 0.011 286);
-  --text-inverse: oklch(0.985 0 0);
+  /* Dividers inside a card stay quiet; outlines use --ink (2px). */
+  --line: color-mix(in srgb, var(--pw-ink) 16%, white);
+  --line-strong: color-mix(in srgb, var(--pw-ink) 32%, white);
+  --ink: var(--pw-ink);
+  --stamp: var(--pw-ink);
 
-  --success: oklch(0.596 0.128 158);
-  --success-soft: oklch(0.945 0.038 158);
-  /* Darkened from L 0.681 to clear 3:1 against the white surface — at the
-     lighter value amber measured 2.98:1, which fails as a mark colour and
-     as small text. */
-  --warning: oklch(0.62 0.15 62);
-  --warning-soft: oklch(0.958 0.047 82);
-  --danger: oklch(0.586 0.204 26);
-  --danger-soft: oklch(0.948 0.035 25);
-  --info: var(--brand-600);
-  --info-soft: var(--brand-50);
+  --text: var(--pw-ink);
+  --text-muted: #4A4A4A;
+  --text-subtle: color-mix(in srgb, var(--pw-ink) 58%, white);
+  --text-inverse: var(--pw-white);
 
-  --ring: oklch(0.625 0.194 286 / 0.45);
-  --shadow-color: 286 22% 40%;
+  /* Status, from the palette: blue = good, orange = needs attention,
+     deep pink = danger. */
+  --success: var(--pw-blue-shade);
+  --success-soft: color-mix(in srgb, var(--pw-blue) 14%, white);
+  --warning: var(--pw-orange-shade);
+  --warning-soft: color-mix(in srgb, var(--pw-orange) 13%, white);
+  --danger: color-mix(in srgb, var(--pw-pink-shade) 82%, var(--pw-ink));
+  --danger-soft: color-mix(in srgb, var(--pw-pink) 13%, white);
+  --info: var(--pw-blue-shade);
+  --info-soft: color-mix(in srgb, var(--pw-blue) 14%, white);
 
-  --radius: 0.75rem;
+  --ring: var(--pw-pink);
+  --shadow-color: 0 0% 7%;
+
+  /* Cards 12-20px; buttons and chips are pills (set on the components). */
+  --radius: 16px;
 }
 
 .dark {
   color-scheme: dark;
 
-  --bg: oklch(0.163 0.011 286);
-  --bg-subtle: oklch(0.141 0.011 286);
-  --surface: oklch(0.203 0.012 286);
-  --surface-2: oklch(0.232 0.013 286);
-  --surface-hover: oklch(0.253 0.015 286);
+  --bg: var(--pw-ink);
+  --bg-subtle: color-mix(in srgb, var(--pw-ink) 92%, white);
+  --surface: color-mix(in srgb, var(--pw-ink) 90%, white);
+  --surface-2: color-mix(in srgb, var(--pw-ink) 85%, white);
+  --surface-hover: color-mix(in srgb, var(--pw-ink) 80%, white);
 
-  --line: oklch(0.283 0.013 286);
-  --line-strong: oklch(0.351 0.015 286);
+  --line: color-mix(in srgb, var(--pw-ink) 72%, white);
+  --line-strong: color-mix(in srgb, var(--pw-ink) 55%, white);
+  /* Ink borders and stamps would vanish on ink: they turn yellow. */
+  --ink: var(--pw-yellow);
+  --stamp: var(--pw-yellow);
 
-  --text: oklch(0.962 0.003 286);
-  --text-muted: oklch(0.729 0.011 286);
-  --text-subtle: oklch(0.585 0.012 286);
-  --text-inverse: oklch(0.18 0.01 286);
+  --text: var(--pw-white);
+  --text-muted: color-mix(in srgb, var(--pw-white) 78%, var(--pw-ink));
+  --text-subtle: color-mix(in srgb, var(--pw-white) 58%, var(--pw-ink));
+  --text-inverse: var(--pw-ink);
 
-  --success: oklch(0.723 0.135 158);
-  --success-soft: oklch(0.29 0.055 158);
-  --warning: oklch(0.789 0.135 76);
-  --warning-soft: oklch(0.31 0.058 66);
-  --danger: oklch(0.688 0.174 24);
-  --danger-soft: oklch(0.31 0.072 25);
-  --info: oklch(0.724 0.146 286);
-  --info-soft: oklch(0.29 0.07 286);
+  --brand-700: var(--pw-pink-tint);
+  --brand-300: var(--pw-pink-tint);
+  --brand-200: var(--pw-pink-tint);
 
-  --ring: oklch(0.724 0.146 286 / 0.5);
-  --shadow-color: 286 40% 3%;
+  --success: var(--pw-blue-tint);
+  --success-soft: color-mix(in srgb, var(--pw-blue) 26%, var(--pw-ink));
+  --warning: var(--pw-orange-tint);
+  --warning-soft: color-mix(in srgb, var(--pw-orange) 24%, var(--pw-ink));
+  --danger: var(--pw-pink-tint);
+  --danger-soft: color-mix(in srgb, var(--pw-pink) 24%, var(--pw-ink));
+  --info: var(--pw-blue-tint);
+  --info-soft: color-mix(in srgb, var(--pw-blue) 26%, var(--pw-ink));
+
+  --ring: var(--pw-pink);
+  --shadow-color: 0 0% 0%;
 }
 
 @theme inline {
@@ -131,11 +161,23 @@
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
 
+  --color-ink: var(--ink);
+  --color-stamp: var(--stamp);
+  /* Fixed ink, for type on a pop colour in either theme. */
+  --color-pw-ink: var(--pw-ink);
+  --color-pw-yellow: var(--pw-yellow);
+  --color-pw-pink: var(--pw-pink);
+  --color-pw-blue: var(--pw-blue);
+  --color-pw-orange: var(--pw-orange);
+  --color-pw-yellow-tint: var(--pw-yellow-tint);
+  --color-pw-pink-shade: var(--pw-pink-shade);
+
   --radius-card: var(--radius);
 
   --font-sans:
-    "Inter var", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
-    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    var(--font-mulish), "Mulish", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --font-display:
+    var(--font-mada), "Mada", "Archivo Black", system-ui, sans-serif;
   --font-mono:
     "JetBrains Mono", "SF Mono", "Cascadia Mono", "Segoe UI Mono", Consolas, monospace;
 
@@ -251,26 +293,37 @@
     background-color: var(--bg);
     color: var(--text);
     font-family: var(--font-sans);
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-weight: 500;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     min-height: 100dvh;
   }
 
   ::selection {
-    background-color: var(--brand-200);
-    color: var(--brand-950);
+    background-color: var(--pw-yellow);
+    color: var(--pw-ink);
   }
   .dark ::selection {
-    background-color: var(--brand-800);
-    color: var(--brand-50);
+    background-color: var(--pw-pink);
+    color: var(--pw-ink);
   }
 
   /* A visible focus ring for keyboard users, and only for them. */
   :focus-visible {
-    outline: 2px solid var(--brand-500);
+    outline: 3px solid var(--pw-pink);
     outline-offset: 2px;
     border-radius: 0.375rem;
+  }
+
+  /* Headlines: heavy display caps, stacked tight (PouchWale type rules). The
+     words themselves are unchanged - the casing is style only. */
+  h1,
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: -0.005em;
+    line-height: 0.98;
   }
 
   /* Thin, theme-aware scrollbars. */
@@ -313,25 +366,24 @@
    Small composites used in more than one place
    ========================================================================== */
 
+/* The PouchWale "stamp": hard offset, no blur, never a soft Material shadow. */
 @utility card-shadow {
-  box-shadow:
-    0 1px 2px -1px hsl(var(--shadow-color) / 0.10),
-    0 1px 3px hsl(var(--shadow-color) / 0.06);
+  box-shadow: 4px 4px 0 0 var(--stamp);
 }
 
 @utility card-shadow-lg {
-  box-shadow:
-    0 4px 6px -2px hsl(var(--shadow-color) / 0.08),
-    0 12px 24px -6px hsl(var(--shadow-color) / 0.14);
+  box-shadow: 8px 8px 0 0 var(--stamp);
+}
+
+/* An ink outline, chunky (2px) - the brand has no hairline borders. */
+@utility stamp-border {
+  border: 2px solid var(--ink);
 }
 
 /* The faint grid behind the sign-in page. */
+/* Behind the sign-in page: a flat field, no grid wash (no gradients). */
 @utility auth-grid {
-  background-image:
-    linear-gradient(to right, var(--line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
-  background-size: 3.5rem 3.5rem;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, black 20%, transparent 75%);
+  background: transparent;
 }
 
 /* Row-by-row entrance for tables and lists, capped so a 200-row page does
@@ -352,18 +404,12 @@
    surface, which reads as decoration and fights every colour placed on top
    of it. Painted with a pseudo-element so the card keeps its own background
    token and stays correct in both themes. */
+/* The dashboard's welcome band: a flat yellow field (no gradient), the
+   brand's default sunny surface. */
 @utility hero-band {
+  background-color: var(--pw-yellow);
   &::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      radial-gradient(
-        60rem 18rem at 88% -30%,
-        color-mix(in oklch, var(--brand-500) 12%, transparent),
-        transparent 70%
-      );
+    content: none;
   }
 }
 
@@ -411,9 +457,10 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
       column-gap: 1rem;
       row-gap: 0.5rem;
-      border: 1px solid var(--line);
+      border: 2px solid var(--ink);
       border-radius: var(--radius);
       background: var(--surface);
+      box-shadow: 4px 4px 0 0 var(--stamp);
       padding: 0.75rem 0.875rem;
     }
 
@@ -494,7 +541,7 @@
     transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
-    transform: translateY(-2px);
-    border-color: var(--line-strong);
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 0 var(--stamp);
   }
 }

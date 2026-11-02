@@ -49,7 +49,7 @@ export function StatusScreen({
         {kind === "not-found" ? (
           <p className="text-[12px] font-semibold uppercase tracking-wider text-subtle">404</p>
         ) : null}
-        <h1 className="mt-1 text-lg font-semibold text-content">{title}</h1>
+        <h1 className="mt-1 text-[24px] font-black leading-none text-content">{title}</h1>
         <p className="mx-auto mt-2 max-w-sm text-[13.5px] leading-relaxed text-muted">
           {description}
         </p>
@@ -67,7 +67,7 @@ export function StatusScreen({
 /** Button look for a plain <a>/<Link>, matching `Button` variants. */
 export const linkButtonClass = {
   primary:
-    "inline-flex h-9.5 items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-brand-700 active:bg-brand-800",
+    "inline-flex h-9.5 items-center justify-center gap-2 rounded-full border-2 border-ink bg-pw-pink px-5 text-sm font-bold text-pw-ink shadow-[3px_3px_0_0_var(--stamp)] transition-[background-color,color,box-shadow,transform] duration-[140ms] hover:bg-pw-pink-shade hover:text-white active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
   secondary:
     "inline-flex h-9.5 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-content transition-colors hover:border-line-strong hover:bg-surface-hover",
 };

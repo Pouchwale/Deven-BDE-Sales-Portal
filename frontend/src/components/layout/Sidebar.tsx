@@ -166,7 +166,7 @@ export function Sidebar({
         id="portal-nav"
         aria-label="Main navigation"
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-line bg-surface lg:flex",
+          "fixed inset-y-0 left-0 z-30 hidden flex-col border-r-2 border-ink bg-surface lg:flex",
           "transition-[width] duration-250 ease-out",
           collapsed ? "w-[76px]" : "w-64",
         )}
@@ -235,10 +235,10 @@ export function NavContent({
           <BrandLogo size={34} />
           {collapsed ? null : (
             <span className="min-w-0">
-              <span className="block truncate text-[14px] font-semibold leading-tight text-content">
+              <span className="block truncate font-[family-name:var(--font-display)] text-[16px] font-black uppercase leading-none text-content">
                 BDE &amp; Sales Portal
               </span>
-              <span className="block truncate text-[11.5px] leading-tight text-subtle">
+              <span className="mt-0.5 block truncate text-[11.5px] font-extrabold uppercase leading-tight tracking-[0.06em] text-brand-700">
                 Pouchwale
               </span>
             </span>
@@ -259,7 +259,7 @@ export function NavContent({
           return (
             <div key={group.section} className={cn(index > 0 && "mt-4")}>
               {labelled ? (
-                <p className="mb-1 px-3 text-[11px] font-medium uppercase tracking-[0.06em] text-subtle">
+                <p className="mb-1.5 px-3 text-[11px] font-extrabold uppercase tracking-[0.08em] text-brand-700">
                   {group.section}
                 </p>
               ) : index > 0 && collapsed ? (
@@ -329,12 +329,12 @@ function NavLink({
       aria-label={collapsed ? item.label : undefined}
       className={cn(
         // 44px tall in the phone sheet (a thumb target), 38px on desktop.
-        "group relative flex h-11 items-center gap-3 rounded-lg px-3 text-[14px] lg:h-[38px]",
-        "transition-colors duration-150",
+        "group relative flex h-11 items-center gap-3 rounded-full border-2 px-3 text-[14px] lg:h-[38px]",
+        "transition-colors duration-[140ms]",
         collapsed && "justify-center px-0",
         active
-          ? "bg-brand-600/8 font-semibold text-brand-700 dark:bg-brand-400/12 dark:text-brand-200"
-          : "font-medium text-muted hover:bg-surface-hover hover:text-content",
+          ? "border-ink bg-pw-pink font-extrabold text-pw-ink shadow-[2px_2px_0_0_var(--stamp)]"
+          : "border-transparent font-semibold text-muted hover:bg-pw-yellow hover:text-pw-ink",
       )}
     >
       {/* The active marker: a short bar on the leading edge, so the current
@@ -343,13 +343,15 @@ function NavLink({
         <span
           aria-hidden
           className={cn(
-            "absolute top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-600 dark:bg-brand-400",
+            // The ink border and weight carry "current page" now; the old
+            // leading bar is kept for screen-reader parity but not drawn.
+            "hidden",
             collapsed ? "-left-2.5" : "-left-3",
           )}
         />
       ) : null}
       <Icon
-        className={cn("size-[18px] shrink-0", !active && "text-subtle group-hover:text-content")}
+        className={cn("size-[18px] shrink-0", !active && "text-subtle group-hover:text-pw-ink")}
       />
       {collapsed ? null : <span className="flex-1 truncate">{item.label}</span>}
       {item.badge ? (

@@ -71,7 +71,7 @@ export function DashboardGreeting({
           <p className="text-[11.5px] font-medium uppercase tracking-[0.08em] text-brand-600 dark:text-brand-300">
             {today}
           </p>
-          <h1 className="mt-1 text-[22px] font-semibold leading-tight tracking-[-0.015em] text-content sm:text-[26px]">
+          <h1 className="mt-1 text-[30px] font-black leading-[0.95] text-pw-ink sm:text-[40px]">
             {hello}
           </h1>
           <p className="mt-1.5 max-w-xl border-l-2 border-brand-200 pl-3 text-[13.5px] italic leading-relaxed text-muted dark:border-brand-900">

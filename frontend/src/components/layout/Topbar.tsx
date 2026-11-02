@@ -46,7 +46,7 @@ export function Topbar({
   const { signOut } = useAuth();
 
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-1 border-b border-line bg-bg/85 px-3 backdrop-blur-md sm:gap-1.5 sm:px-6">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-1 border-b-2 border-ink bg-bg px-3 sm:gap-1.5 sm:px-6">
       {/* Below lg the navigation is a sheet opened from here. At lg and
           above it is always on screen and collapses from its own button. */}
       <button

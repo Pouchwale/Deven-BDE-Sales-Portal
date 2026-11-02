@@ -5,14 +5,14 @@ import { forwardRef, useId, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
+// PouchWale fields: 2px ink outline, a pink stamp when focused (no soft glow).
 const CONTROL =
-  "w-full rounded-lg border border-line bg-surface px-3 text-sm text-content " +
-  "placeholder:text-subtle transition-[border-color,box-shadow] duration-150 " +
-  "hover:border-line-strong focus:border-brand-500 focus:outline-none " +
-  "focus:ring-4 focus:ring-brand-500/12 disabled:cursor-not-allowed disabled:opacity-60 " +
-  "disabled:hover:border-line";
+  "w-full rounded-xl border-2 border-ink bg-surface px-3 text-sm font-semibold text-content " +
+  "placeholder:font-medium placeholder:text-subtle transition-[box-shadow] duration-[140ms] " +
+  "focus:outline-none focus:shadow-[3px_3px_0_0_var(--pw-pink)] " +
+  "disabled:cursor-not-allowed disabled:opacity-60";
 
-const INVALID = "border-danger hover:border-danger focus:border-danger focus:ring-danger/12";
+const INVALID = "border-danger focus:shadow-[3px_3px_0_0_var(--danger)]";
 
 /* --------------------------------------------------------------- field */
 export interface FieldProps {
@@ -38,7 +38,7 @@ export function Field({
     <div className={cn("space-y-1.5", className)}>
       <label
         htmlFor={htmlFor}
-        className="flex items-center gap-1 text-[13px] font-medium text-content"
+        className="flex items-center gap-1 text-[13px] font-bold text-content"
       >
         {label}
         {required ? (
@@ -194,19 +194,19 @@ export function Switch({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative inline-flex h-5.5 w-10 shrink-0 items-center rounded-full",
+          "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-ink",
           // The knob is a flex child rather than absolutely positioned, and
           // the track clips: it cannot escape its own pill however the
           // surrounding layout is squeezed.
           "overflow-hidden p-0.5 transition-colors duration-200",
           "disabled:cursor-not-allowed disabled:opacity-60",
-          checked ? "bg-brand-600" : "bg-line-strong",
+          checked ? "bg-pw-pink" : "bg-surface-2",
         )}
       >
         <span
           className={cn(
-            "size-4.5 rounded-full bg-white shadow-sm transition-transform duration-200",
-            checked ? "translate-x-4.5" : "translate-x-0",
+            "size-4 rounded-full border-2 border-ink bg-white transition-transform duration-200",
+            checked ? "translate-x-5" : "translate-x-0",
           )}
         />
       </button>

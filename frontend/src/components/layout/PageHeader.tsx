@@ -23,11 +23,11 @@ export function PageHeader({
       <div className="stagger min-w-0" style={{ "--index": 0 } as React.CSSProperties}>
         {/* A step down on a phone: 20px over two lines pushes the content
             that answers the question off the first screen. */}
-        <h1 className="text-[18px] font-semibold tracking-tight text-content sm:text-[20px]">
+        <h1 className="text-[26px] font-black leading-[0.95] text-content sm:text-[34px]">
           {title}
         </h1>
         {description ? (
-          <p className="mt-1 max-w-2xl text-[13.5px] leading-relaxed text-muted">
+          <p className="mt-2 max-w-2xl text-[13.5px] font-semibold leading-relaxed text-muted">
             {description}
           </p>
         ) : null}

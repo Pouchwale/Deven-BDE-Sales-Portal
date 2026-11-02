@@ -35,7 +35,7 @@ export function Tabs({
     <div
       role="tablist"
       className={cn(
-        "flex gap-1 rounded-xl border border-line bg-surface-2 p-1",
+        "flex gap-1 rounded-full border-2 border-ink bg-surface p-1",
         // The scroll container has to be BOUNDED or it is not a scroll
         // container: call sites pass `w-fit`, which sizes to content and let
         // a five-tab strip push the whole page 200px wide on a phone.
@@ -56,9 +56,9 @@ export function Tabs({
             data-testid={`tab-${tab.key}`}
             onClick={() => onChange(tab.key)}
             className={cn(
-              "relative flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium",
+              "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-bold",
               "transition-colors duration-150 active:scale-[0.98]",
-              selected ? "text-content" : "text-muted hover:text-content",
+              selected ? "text-pw-ink" : "text-muted hover:text-content",
             )}
           >
             {/* The pill is its own element, keyed on the active tab, so it
@@ -67,7 +67,7 @@ export function Tabs({
               <span
                 key={active}
                 aria-hidden
-                className="animate-scale-in absolute inset-0 rounded-lg bg-surface card-shadow"
+                className="animate-scale-in absolute inset-0 rounded-full border-2 border-ink bg-pw-yellow"
               />
             ) : null}
             <span className="relative">{tab.label}</span>
@@ -75,7 +75,7 @@ export function Tabs({
               <span
                 className={cn(
                   "relative rounded-full px-1.5 text-[11px] tabular-nums transition-colors duration-150",
-                  selected ? "bg-brand-600/12 text-brand-700 dark:text-brand-300" : "bg-line text-subtle",
+                  selected ? "bg-pw-ink text-pw-yellow" : "bg-surface-2 text-subtle",
                 )}
               >
                 {formatNumber(tab.count)}

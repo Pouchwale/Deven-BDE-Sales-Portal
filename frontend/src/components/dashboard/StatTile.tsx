@@ -90,12 +90,12 @@ function StatCard({
         <Icon className={cn("mt-px size-4 shrink-0", ICON_TONE[accent])} aria-hidden />
         {/* Wraps rather than truncates: "References compl…" on a phone
             hides the one word that says what the number is. */}
-        <p className="line-clamp-2 min-w-0 text-[12.5px] font-medium leading-snug text-muted">
+        <p className="line-clamp-2 min-w-0 text-[12.5px] font-extrabold uppercase leading-snug tracking-[0.04em] text-muted">
           {label}
         </p>
       </div>
       {/* tabular-nums keeps the width steady while the digits run. */}
-      <p className="mt-2.5 text-[22px] font-semibold leading-none tracking-tight tabular-nums text-content sm:text-[24px]">
+      <p className="mt-2.5 font-[family-name:var(--font-display)] text-[30px] font-black leading-none tabular-nums text-content sm:text-[34px]">
         {shown}
       </p>
       {hint ? (
@@ -127,14 +127,14 @@ function StatRow({ label, value, hint, icon: Icon, accent = "brand", href }: Sta
     <>
       <Icon className={cn("size-4 shrink-0", ICON_TONE[accent])} aria-hidden />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13.5px] font-medium text-content">{label}</span>
+        <span className="block truncate text-[13.5px] font-bold text-content">{label}</span>
         {hint ? (
           <span className="mt-0.5 block text-[12px] leading-snug text-subtle">{hint}</span>
         ) : null}
       </span>
       <span
         className={cn(
-          "shrink-0 text-[20px] font-semibold leading-none tracking-tight tabular-nums",
+          "shrink-0 font-[family-name:var(--font-display)] text-[24px] font-black leading-none tabular-nums",
           VALUE_TONE[accent],
         )}
       >
@@ -194,7 +194,7 @@ export function StatSection({
     <section data-enter className="flex flex-col">
       <Card className="flex h-full flex-col overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-5">
-          <h2 className="flex items-center gap-2 text-[14px] font-semibold text-content">
+          <h2 className="flex items-center gap-2 text-[17px] font-black leading-none text-content">
             {Icon ? <Icon className="size-4 text-brand-600 dark:text-brand-300" aria-hidden /> : null}
             {title}
           </h2>

@@ -8,27 +8,28 @@ import { cn } from "@/lib/cn";
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "subtle";
 type Size = "sm" | "md" | "lg" | "icon";
 
+// PouchWale "stamp" buttons: pill, 2px ink border, hard offset shadow that
+// squashes on press. Hover swaps to the colour's shade - never an opacity fade.
+const STAMP =
+  "border-2 border-ink shadow-[3px_3px_0_0_var(--stamp)] " +
+  "active:translate-x-[2px] active:translate-y-[2px] active:shadow-none";
+
 const VARIANTS: Record<Variant, string> = {
   primary:
-    "bg-brand-600 text-white shadow-sm hover:bg-brand-700 active:bg-brand-800 " +
-    "disabled:hover:bg-brand-600",
-  secondary:
-    "bg-surface text-content border border-line hover:bg-surface-hover " +
-    "hover:border-line-strong active:bg-surface-2",
-  ghost: "text-muted hover:bg-surface-hover hover:text-content",
-  danger:
-    "bg-danger text-white shadow-sm hover:brightness-110 active:brightness-95 " +
-    "disabled:hover:brightness-100",
+    `bg-pw-pink text-pw-ink ${STAMP} hover:bg-pw-pink-shade hover:text-white ` +
+    "disabled:hover:bg-pw-pink disabled:hover:text-pw-ink",
+  secondary: `bg-surface text-content ${STAMP} hover:bg-pw-yellow hover:text-pw-ink`,
+  ghost: "border-2 border-transparent text-muted hover:bg-surface-hover hover:text-content",
+  danger: `bg-danger text-white ${STAMP} hover:bg-pw-pink-shade`,
   subtle:
-    "bg-surface-2 text-content border border-transparent hover:bg-surface-hover " +
-    "hover:border-line",
+    "bg-surface-2 text-content border-2 border-transparent hover:border-ink hover:bg-surface",
 };
 
 const SIZES: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px] gap-1.5 rounded-lg",
-  md: "h-9.5 px-4 text-sm gap-2 rounded-lg",
-  lg: "h-11 px-5 text-[15px] gap-2 rounded-xl",
-  icon: "size-9 rounded-lg",
+  sm: "h-8 px-3.5 text-[13px] gap-1.5 rounded-full",
+  md: "h-9.5 px-5 text-sm gap-2 rounded-full",
+  lg: "h-11 px-6 text-[15px] gap-2 rounded-full",
+  icon: "size-9 rounded-full",
 };
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -48,9 +49,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       // user meant, and double-posting a create is worse than a slow click.
       disabled={disabled || loading}
       className={cn(
-        "relative inline-flex select-none items-center justify-center font-medium",
-        "transition-[background-color,border-color,color,box-shadow,transform] duration-150",
-        "active:scale-[0.985] disabled:pointer-events-none disabled:opacity-55",
+        "relative inline-flex select-none items-center justify-center font-bold",
+        "transition-[background-color,border-color,color,box-shadow,transform] duration-[140ms]",
+        "disabled:pointer-events-none disabled:opacity-55",
         VARIANTS[variant],
         SIZES[size],
         className,

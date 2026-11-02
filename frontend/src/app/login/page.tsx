@@ -124,32 +124,31 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
       {/* ------------------------------------------------ brand panel */}
-      <aside className="relative hidden overflow-hidden bg-brand-950 lg:flex lg:flex-col lg:justify-between lg:p-12">
-        <div className="absolute inset-0 auth-grid opacity-[0.07]" aria-hidden />
+      <aside className="relative hidden overflow-hidden border-r-2 border-ink bg-pw-ink lg:flex lg:flex-col lg:justify-between lg:p-12">
         <div
-          className="absolute -left-24 top-1/4 size-[30rem] rounded-full bg-brand-500/25 blur-[110px]"
+          className="absolute -right-16 -top-16 size-56 rounded-full border-2 border-white/15 bg-pw-pink"
           aria-hidden
         />
         <div
-          className="absolute -bottom-24 right-0 size-[26rem] rounded-full bg-brand-400/15 blur-[110px]"
+          className="absolute -bottom-20 left-1/3 size-40 rounded-full bg-pw-blue"
           aria-hidden
         />
 
         <div className="relative flex items-center gap-3">
-          <BrandLogo size={44} className="ring-2 ring-white/15" />
+          <BrandLogo size={44} className="ring-2 ring-pw-yellow" />
           <div>
-            <p className="text-[15px] font-semibold leading-tight text-white">BDE &amp; Sales Portal</p>
-            <p className="text-[12.5px] leading-tight text-brand-200/80">Pouchwale · Mehsana</p>
+            <p className="font-[family-name:var(--font-display)] text-[17px] font-black uppercase leading-none text-white">BDE &amp; Sales Portal</p>
+            <p className="mt-1 text-[12px] font-extrabold uppercase leading-tight tracking-[0.06em] text-pw-yellow">Pouchwale · Mehsana</p>
           </div>
         </div>
 
         <div className="relative max-w-md">
-          <h2 className="text-[26px] font-semibold leading-tight text-white">
+          <h2 className="text-[46px] font-black leading-[0.92] text-pw-yellow">
             One reporting chain,
             <br />
             enforced everywhere.
           </h2>
-          <p className="mt-3 text-[14px] leading-relaxed text-brand-100/75">
+          <p className="mt-4 text-[14px] font-semibold leading-relaxed text-white/80">
             Managers see their own subtree at any depth — nothing sideways, nothing above.
             Every list, every counter and every dashboard applies the same scope.
           </p>
@@ -160,9 +159,9 @@ export default function LoginPage() {
               { icon: ShieldCheck, text: "Nobody can act on someone who outranks them" },
               { icon: Lock, text: "Every authority-gated change is audited" },
             ].map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-center gap-3 text-[13.5px] text-brand-100/85">
-                <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg bg-white/10 backdrop-blur">
-                  <Icon className="size-3.5 text-brand-100" aria-hidden />
+              <li key={text} className="flex items-center gap-3 text-[13.5px] font-bold text-white">
+                <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-pw-yellow">
+                  <Icon className="size-4 text-pw-ink" aria-hidden />
                 </span>
                 {text}
               </li>
@@ -173,7 +172,7 @@ export default function LoginPage() {
         {/* No counts here. A hardcoded "17 accounts" on the sign-in page is a
             number nobody maintains, and it contradicted every screen behind
             the login the moment the lead book grew. */}
-        <p className="relative text-[12px] text-brand-200/50">
+        <p className="relative text-[12px] font-semibold text-white/55">
           Leads, references and customer feedback in one place.
         </p>
       </aside>
@@ -185,8 +184,8 @@ export default function LoginPage() {
             <BrandLogo size={48} />
           </div>
 
-          <h1 className="text-[22px] font-semibold tracking-tight text-content">Welcome back</h1>
-          <p className="mt-1.5 text-[13.5px] text-muted">
+          <h1 className="text-[30px] font-black leading-none text-content">Welcome back</h1>
+          <p className="mt-2 text-[13.5px] font-semibold text-muted">
             Sign in to the BDE &amp; Sales Portal.
           </p>
 

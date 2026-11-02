@@ -79,7 +79,7 @@ export default function SetPasswordPage() {
             <ShieldAlert className="size-5" aria-hidden />
           </span>
           <div>
-            <h1 className="text-[19px] font-semibold tracking-tight text-content">
+            <h1 className="text-[26px] font-black leading-none text-content">
               Set your own password
             </h1>
             <p className="text-[13px] text-muted">

@@ -16,8 +16,8 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5",
-        "text-[11.5px] font-medium leading-4 whitespace-nowrap",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5",
+        "text-[11.5px] font-bold leading-4 whitespace-nowrap",
         // A badge changes when the thing it labels changes — a lead moving
         // stage, an alert being assigned — so the colour should travel rather
         // than cut.

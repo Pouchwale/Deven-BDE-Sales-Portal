@@ -5,11 +5,11 @@ import { forwardRef, useId, useState } from "react";
 
 import { cn } from "@/lib/cn";
 
-// PouchWale fields: 2px ink outline, a pink stamp when focused (no soft glow).
+// PouchWale fields: 2px ink outline, an action-colour stamp when focused.
 const CONTROL =
   "w-full rounded-xl border-2 border-ink bg-surface px-3 text-sm font-semibold text-content " +
   "placeholder:font-medium placeholder:text-subtle transition-[box-shadow] duration-[140ms] " +
-  "focus:outline-none focus:shadow-[3px_3px_0_0_var(--pw-pink)] " +
+  "focus:outline-none focus:shadow-[3px_3px_0_0_var(--action)] " +
   "disabled:cursor-not-allowed disabled:opacity-60";
 
 const INVALID = "border-danger focus:shadow-[3px_3px_0_0_var(--danger)]";
@@ -200,7 +200,7 @@ export function Switch({
           // surrounding layout is squeezed.
           "overflow-hidden p-0.5 transition-colors duration-200",
           "disabled:cursor-not-allowed disabled:opacity-60",
-          checked ? "bg-pw-pink" : "bg-surface-2",
+          checked ? "bg-action" : "bg-surface-2",
         )}
       >
         <span

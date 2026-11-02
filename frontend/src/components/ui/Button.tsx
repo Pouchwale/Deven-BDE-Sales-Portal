@@ -16,8 +16,8 @@ const STAMP =
 
 const VARIANTS: Record<Variant, string> = {
   primary:
-    `bg-pw-pink text-pw-ink ${STAMP} hover:bg-pw-pink-shade hover:text-white ` +
-    "disabled:hover:bg-pw-pink disabled:hover:text-pw-ink",
+    `bg-action text-pw-ink ${STAMP} hover:bg-action-hover hover:text-white ` +
+    "disabled:hover:bg-action disabled:hover:text-pw-ink",
   secondary: `bg-surface text-content ${STAMP} hover:bg-pw-yellow hover:text-pw-ink`,
   ghost: "border-2 border-transparent text-muted hover:bg-surface-hover hover:text-content",
   danger: `bg-danger text-white ${STAMP} hover:bg-pw-pink-shade`,

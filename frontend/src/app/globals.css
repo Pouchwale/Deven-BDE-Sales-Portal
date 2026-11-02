@@ -39,18 +39,27 @@
   --pw-orange-tint: #FFB59A;
   --pw-orange-shade: #DB3E0B;
 
-  /* "Brand" = the action colour: PouchWale pink, light tints to deep shades. */
-  --brand-50: color-mix(in srgb, var(--pw-pink) 7%, white);
-  --brand-100: color-mix(in srgb, var(--pw-pink) 14%, white);
-  --brand-200: var(--pw-pink-tint);
-  --brand-300: color-mix(in srgb, var(--pw-pink) 70%, white);
-  --brand-400: color-mix(in srgb, var(--pw-pink) 85%, white);
-  --brand-500: var(--pw-pink);
-  --brand-600: var(--pw-pink-shade);
-  --brand-700: color-mix(in srgb, var(--pw-pink-shade) 86%, var(--pw-ink));
-  --brand-800: color-mix(in srgb, var(--pw-pink-shade) 80%, var(--pw-ink));
-  --brand-900: color-mix(in srgb, var(--pw-pink-shade) 60%, var(--pw-ink));
-  --brand-950: color-mix(in srgb, var(--pw-pink-shade) 40%, var(--pw-ink));
+  /* "Brand" = the working colour of the portal: PouchWale blue, light tints
+     to deep shades. Calm and businesslike for screens people sit in all
+     day; pink stays an accent (alerts, sparkles, the sign-in showpiece). */
+  --brand-50: color-mix(in srgb, var(--pw-blue) 7%, white);
+  --brand-100: color-mix(in srgb, var(--pw-blue) 14%, white);
+  --brand-200: var(--pw-blue-tint);
+  --brand-300: color-mix(in srgb, var(--pw-blue) 70%, white);
+  --brand-400: color-mix(in srgb, var(--pw-blue) 85%, white);
+  --brand-500: var(--pw-blue);
+  --brand-600: var(--pw-blue-shade);
+  --brand-700: color-mix(in srgb, var(--pw-blue-shade) 86%, var(--pw-ink));
+  --brand-800: color-mix(in srgb, var(--pw-blue-shade) 80%, var(--pw-ink));
+  --brand-900: color-mix(in srgb, var(--pw-blue-shade) 60%, var(--pw-ink));
+  --brand-950: color-mix(in srgb, var(--pw-blue-shade) 40%, var(--pw-ink));
+
+  /* The fill of primary buttons, the current menu item, switches and the
+     focused field's stamp. Ink text on it; white on its hover shade. One
+     place to change it - the sign-in page sets it back to pink for itself
+     (".pw-pink-actions"). */
+  --action: var(--pw-blue);
+  --action-hover: var(--pw-blue-shade);
 
   /* A quiet near-white page so the pop colours do the talking; cards and
      controls are pure white with ink outlines. */
@@ -111,9 +120,9 @@
   --text-subtle: #8A8A93;
   --text-inverse: var(--pw-ink);
 
-  --brand-700: var(--pw-pink-tint);
-  --brand-300: var(--pw-pink-tint);
-  --brand-200: var(--pw-pink-tint);
+  --brand-700: var(--pw-blue-tint);
+  --brand-300: var(--pw-blue-tint);
+  --brand-200: var(--pw-blue-tint);
 
   --success: var(--pw-blue-tint);
   --success-soft: color-mix(in srgb, var(--pw-blue) 26%, var(--pw-ink));
@@ -174,6 +183,9 @@
   --color-pw-orange: var(--pw-orange);
   --color-pw-yellow-tint: var(--pw-yellow-tint);
   --color-pw-pink-shade: var(--pw-pink-shade);
+  --color-pw-blue-shade: var(--pw-blue-shade);
+  --color-action: var(--action);
+  --color-action-hover: var(--action-hover);
 
   --radius-card: var(--radius);
 
@@ -1153,4 +1165,11 @@ html[data-arrive] main.page-enter {
 @media (prefers-reduced-motion: reduce) {
   .pw-logo-swap-a { animation: none; }
   .pw-logo-swap-b { display: none; }
+}
+
+/* The sign-in page is the brand's showpiece (intro, pink rule, sparkles):
+   its actions stay PouchWale pink. Everything after sign-in is blue. */
+.pw-pink-actions {
+  --action: var(--pw-pink);
+  --action-hover: var(--pw-pink-shade);
 }

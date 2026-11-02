@@ -67,7 +67,7 @@ export function StatusScreen({
 /** Button look for a plain <a>/<Link>, matching `Button` variants. */
 export const linkButtonClass = {
   primary:
-    "inline-flex h-9.5 items-center justify-center gap-2 rounded-full border-2 border-ink bg-pw-pink px-5 text-sm font-bold text-pw-ink shadow-[3px_3px_0_0_var(--stamp)] transition-[background-color,color,box-shadow,transform] duration-[140ms] hover:bg-pw-pink-shade hover:text-white active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
+    "inline-flex h-9.5 items-center justify-center gap-2 rounded-full border-2 border-ink bg-action px-5 text-sm font-bold text-pw-ink shadow-[3px_3px_0_0_var(--stamp)] transition-[background-color,color,box-shadow,transform] duration-[140ms] hover:bg-action-hover hover:text-white active:translate-x-[2px] active:translate-y-[2px] active:shadow-none",
   secondary:
     "inline-flex h-9.5 items-center justify-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-content transition-colors hover:border-line-strong hover:bg-surface-hover",
 };

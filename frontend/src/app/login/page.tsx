@@ -198,7 +198,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className={cn("grid min-h-dvh lg:grid-cols-[1.05fr_1fr]", leaving && "pw-takeoff")}>
+    <div className={cn("pw-pink-actions grid min-h-dvh lg:grid-cols-[1.05fr_1fr]", leaving && "pw-takeoff")}>
       {/* ------------------------------------------------ brand panel */}
       <aside
         ref={panelRef}

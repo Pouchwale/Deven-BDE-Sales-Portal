@@ -25,7 +25,7 @@ function zigzag(x0: number, x1: number, y: number, depth: number, teeth: number)
   return d;
 }
 
-function StandUpPouch({ fill }: { fill: string }) {
+export function StandUpPouch({ fill }: { fill: string }) {
   return (
     <svg viewBox="0 0 200 250" className="block h-auto w-full overflow-visible">
       <path
@@ -47,7 +47,7 @@ function StandUpPouch({ fill }: { fill: string }) {
   );
 }
 
-function SpoutPouch({ fill, cap }: { fill: string; cap: string }) {
+export function SpoutPouch({ fill, cap }: { fill: string; cap: string }) {
   return (
     <svg viewBox="0 0 200 260" className="block h-auto w-full overflow-visible">
       {/* the cap sits on the angled shoulder */}
@@ -71,7 +71,7 @@ function SpoutPouch({ fill, cap }: { fill: string; cap: string }) {
   );
 }
 
-function Sachet({ fill, band }: { fill: string; band: string }) {
+export function Sachet({ fill, band }: { fill: string; band: string }) {
   const top = `M14 32${zigzag(14, 166, 32, 9, 10)}`;
   return (
     <svg viewBox="0 0 180 220" className="block h-auto w-full overflow-visible">
@@ -88,7 +88,7 @@ function Sachet({ fill, band }: { fill: string; band: string }) {
   );
 }
 
-function PillowPack({ fill, stripe }: { fill: string; stripe: string }) {
+export function PillowPack({ fill, stripe }: { fill: string; stripe: string }) {
   // Crimped ends: the left edge zigzags down, the right edge back up.
   const teeth = 7;
   const step = 132 / teeth;

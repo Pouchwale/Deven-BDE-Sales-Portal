@@ -552,18 +552,31 @@
 /* ==========================================================================
    First-load intro (components/IntroSplash.tsx, gated by lib/intro.ts)
 
-   One idea per beat, on a single expo-out curve so it reads as one gesture:
-     100ms   "POUCH" rises from behind its mask
-     200ms   "WALE" follows
-     650ms   a pink rule draws left to right
-     850ms   the caption settles in
-    1600ms   content lifts off
-    1700ms   the ink curtain rises, the pink trail one beat behind it
-   Transform-only (and one short opacity), so it holds 60fps on a low-end
-   phone. Hidden unless <html data-intro> is set.
+   Beats, all on expo curves so it reads as one gesture:
+      100ms   "POUCH" rises from behind its mask; "WALE" follows
+      160ms+  the pouch flock flies in from below, wind streaks trailing,
+              and settles around the logo as the streaks die away
+      650ms   a pink rule draws; 850ms the caption settles
+     1690ms+  pouches, then the logo, shoot upward; streaks stretch out
+     2000ms   the ink curtain rises, the pink trail one beat behind it
+   Transform and opacity only, so it holds 60fps on a low-end phone.
+   Hidden unless <html data-intro> is set.
    ========================================================================== */
 .pw-intro {
   display: none;
+  /* Flock layout scale: wide screens spread sideways, tall phones spread
+     up and down and draw the pouches a little larger. */
+  --xs: 1;
+  --ys: 1;
+  --ws: 1;
+}
+
+@media (orientation: portrait) {
+  .pw-intro {
+    --xs: 1.05;
+    --ys: 1.9;
+    --ws: 1.45;
+  }
 }
 
 html[data-intro] body {
@@ -588,22 +601,32 @@ html[data-intro] .pw-intro {
 
 .pw-intro-trail {
   background: var(--pw-pink);
-  animation: pw-intro-out 650ms cubic-bezier(0.76, 0, 0.24, 1) 1790ms both;
+  animation: pw-intro-out 650ms cubic-bezier(0.76, 0, 0.24, 1) 2090ms both;
 }
 
 .pw-intro-panel {
-  display: grid;
-  place-items: center;
+  overflow: hidden;
   background: var(--pw-ink);
-  animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 1700ms both;
+  animation: pw-curtain-up 650ms cubic-bezier(0.76, 0, 0.24, 1) 2000ms both;
 }
 
+.pw-intro-stage {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* ------------------------------------------------------------ logo */
 .pw-intro-content {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 0 24px;
-  animation: pw-content-out 300ms cubic-bezier(0.5, 0, 0.75, 0) 1600ms both;
+  will-change: transform;
+  animation: pw-rise-away 720ms cubic-bezier(0.55, 0, 0.85, 0.3) 1790ms both;
 }
 
 /* The wordmark, cut into its two lines. Each line is a fixed window
@@ -612,7 +635,7 @@ html[data-intro] .pw-intro {
 .pw-intro-logo {
   position: relative;
   width: clamp(200px, 58vw, 380px);
-  aspect-ratio: 379 / 160;
+  aspect-ratio: 1136 / 480;
 }
 
 .pw-intro-half {
@@ -676,17 +699,98 @@ html[data-intro] .pw-intro {
   animation: pw-caption-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 850ms both;
 }
 
-/* A tap or key press (before the exit has begun) skips to a quick exit. */
-html[data-intro="out"] .pw-intro-content {
-  animation: pw-content-out 180ms cubic-bezier(0.5, 0, 0.75, 0) both;
-}
-html[data-intro="out"] .pw-intro-panel {
-  animation: pw-curtain-up 460ms cubic-bezier(0.76, 0, 0.24, 1) 60ms both;
-}
-html[data-intro="out"] .pw-intro-trail {
-  animation: pw-intro-out 460ms cubic-bezier(0.76, 0, 0.24, 1) 130ms both;
+/* ----------------------------------------------------------- flock */
+/* Three layers per pouch, so no two animations fight over one transform:
+     .pw-fly       resting place + the fly-in from below
+     .pw-fly-exit  the shot upward at the end
+     .pw-fly-art   the tilt, which settles as it lands
+   The wind sits outside the tilt, so streaks always point straight down
+   the line of flight. */
+.pw-fly {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--w) * var(--ws) * 1vmin);
+  will-change: transform;
+  animation: pw-fly-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
 }
 
+.pw-fly-exit {
+  position: relative;
+  will-change: transform;
+  animation: pw-fly-out 700ms cubic-bezier(0.55, 0, 0.85, 0.3) var(--out) both;
+}
+
+.pw-fly-art {
+  position: relative;
+  transform: rotate(var(--r));
+  animation: pw-tilt-in 1100ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+}
+
+.pw-wind {
+  position: absolute;
+  top: 62%;
+  left: 6%;
+  right: 6%;
+  height: 160%;
+  pointer-events: none;
+  transform-origin: top;
+}
+
+.pw-wind > i {
+  position: absolute;
+  top: 0;
+  width: 2.5px;
+  border-radius: 999px;
+  background: linear-gradient(to bottom, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0));
+}
+
+.pw-wind > i:nth-child(1) { left: 8%; height: 90%; }
+.pw-wind > i:nth-child(2) { left: 30%; height: 62%; background: linear-gradient(to bottom, rgb(254 69 135 / 0.95), rgb(254 69 135 / 0)); }
+.pw-wind > i:nth-child(3) { left: 55%; height: 112%; }
+.pw-wind > i:nth-child(4) { left: 80%; height: 54%; }
+.pw-wind > i:nth-child(5) { left: 92%; height: 80%; background: linear-gradient(to bottom, rgb(243 227 63 / 0.9), rgb(243 227 63 / 0)); }
+.pw-wind > i:nth-child(6) { left: 43%; height: 70%; }
+
+/* Strong while a pouch is moving, gone once it has landed... */
+.pw-wind-in {
+  animation: pw-wind-settle 1000ms cubic-bezier(0.16, 1, 0.3, 1) var(--in) both;
+}
+
+/* ...and long and bright again as it shoots off. */
+.pw-wind-out {
+  animation: pw-wind-gust 560ms cubic-bezier(0.55, 0, 0.85, 0.3) var(--out) both;
+}
+
+/* The logo leaves on the same wind. */
+.pw-intro-logo-wind {
+  --out: 1790ms;
+  position: absolute;
+  left: 12%;
+  right: 12%;
+  top: calc(100% + 10px);
+  height: 110%;
+}
+
+.pw-intro-logo-wind > .pw-wind {
+  inset: 0;
+  height: auto;
+}
+
+/* --------------------------------------------------- tap to skip */
+/* A tap or key press (before the exit has begun) skips to a quick exit. */
+html[data-intro="out"] .pw-fly-exit,
+html[data-intro="out"] .pw-intro-content {
+  animation: pw-rise-away 380ms cubic-bezier(0.55, 0, 0.85, 0.3) both;
+}
+html[data-intro="out"] .pw-intro-panel {
+  animation: pw-curtain-up 460ms cubic-bezier(0.76, 0, 0.24, 1) 140ms both;
+}
+html[data-intro="out"] .pw-intro-trail {
+  animation: pw-intro-out 460ms cubic-bezier(0.76, 0, 0.24, 1) 210ms both;
+}
+
+/* ------------------------------------------------------- keyframes */
 @keyframes pw-line-rise {
   from { transform: translateY(62%); }
   to { transform: translateY(0); }
@@ -702,9 +806,45 @@ html[data-intro="out"] .pw-intro-trail {
   to { opacity: 1; transform: none; }
 }
 
-@keyframes pw-content-out {
-  from { opacity: 1; transform: none; }
-  to { opacity: 0; transform: translateY(-28px); }
+@keyframes pw-fly-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%)
+      translate(calc(var(--x) * var(--xs) * 1vmin), calc(var(--y) * var(--ys) * 1vmin + 70vh));
+  }
+  12% { opacity: 1; }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%)
+      translate(calc(var(--x) * var(--xs) * 1vmin), calc(var(--y) * var(--ys) * 1vmin));
+  }
+}
+
+@keyframes pw-tilt-in {
+  from { transform: rotate(calc(var(--r) - 28deg)) scale(0.82); }
+  to { transform: rotate(var(--r)) scale(1); }
+}
+
+@keyframes pw-wind-settle {
+  from { opacity: 1; transform: scaleY(1.7); }
+  70% { opacity: 0.35; }
+  to { opacity: 0; transform: scaleY(0.15); }
+}
+
+@keyframes pw-wind-gust {
+  from { opacity: 0; transform: scaleY(0.2); }
+  25% { opacity: 1; }
+  to { opacity: 1; transform: scaleY(3.2); }
+}
+
+@keyframes pw-fly-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(-130vh); }
+}
+
+@keyframes pw-rise-away {
+  from { transform: translateY(0); }
+  to { transform: translateY(-120vh); }
 }
 
 @keyframes pw-curtain-up {

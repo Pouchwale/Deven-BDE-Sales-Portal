@@ -32,16 +32,16 @@ export const INTRO_INIT_SCRIPT = `
     }
     var started = Date.now();
     function skip() {
-      // Once the curtain is already rising (1.6s in), let it finish:
+      // Once the flock is already leaving (1.6s in), let it finish:
       // switching to the quick exit then would snap it back down first.
-      if (root.dataset.intro === "play" && Date.now() - started < 1550) root.dataset.intro = "out";
+      if (root.dataset.intro === "play" && Date.now() - started < 1600) root.dataset.intro = "out";
     }
     document.addEventListener("animationend", onEnd);
     document.addEventListener("pointerdown", skip, true);
     document.addEventListener("keydown", skip, true);
     // Never let the splash outstay its welcome, whatever happens to the
     // animation events (a background tab, a stylesheet that is late).
-    setTimeout(finish, 4000);
+    setTimeout(finish, 4500);
   } catch (e) {}
 })();
 `;

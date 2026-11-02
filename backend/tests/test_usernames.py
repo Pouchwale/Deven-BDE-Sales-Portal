@@ -151,3 +151,33 @@ def test_suggestion_never_collides(db, users) -> None:
     suggested = suggest_username(db, name="Navya", email="navya@pouchwale.com", role="BDE")
     assert suggested not in {"navya"}
     assert db.execute(select(User).where(User.username == suggested)).first() is None
+
+
+def test_full_name_signs_in_like_the_username(client, users) -> None:
+    """People type their name into the sign-in box ("Parag Sharma")."""
+    person = users["Navya Rupawat"]
+    for typed in ("Navya Rupawat", "navya rupawat", "  NAVYA   RUPAWAT "):
+        assert login(client, typed).status_code == 200, typed
+    assert login(client, "Navya Rupawat", "wrong-password").status_code == 401
+    assert person.username != "navyarupawat"  # it really is the name that matched
+
+
+def test_a_shared_full_name_matches_nobody(client, users, db) -> None:
+    twin = User(
+        name="Navya Rupawat",
+        email=new_email(),
+        username="navya-twin",
+        role=Role.BDE,
+        hashed_password=users["Navya Rupawat"].hashed_password,
+        is_active=True,
+    )
+    db.add(twin)
+    db.commit()
+    assert login(client, "Navya Rupawat").status_code == 401
+    assert login(client, "navya").status_code == 200
+
+
+def test_invisible_characters_from_copy_paste_are_ignored() -> None:
+    assert normalise_login("​parag​") == "parag"
+    assert normalise_login("﻿parag") == "parag"
+    assert normalise_login("pa‌rag ") == "parag"

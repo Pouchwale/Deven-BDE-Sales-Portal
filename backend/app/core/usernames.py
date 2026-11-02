@@ -7,6 +7,7 @@ unique.
 from __future__ import annotations
 
 import re
+import unicodedata
 import uuid
 
 from sqlalchemy import select
@@ -28,11 +29,34 @@ def normalise_login(identifier: str) -> str:
 
     An email is lowercased. Anything else is a username: lowercased with every
     space removed, so "Super Admin" and "superadmin" are the same sign-in.
+    Invisible characters (zero-width spaces, BOMs - what copying a username
+    out of WhatsApp can carry along) are dropped first: nobody can type them,
+    and an account never contains one.
     """
-    text = (identifier or "").strip().lower()
+    text = "".join(
+        ch for ch in (identifier or "") if unicodedata.category(ch) != "Cf"
+    ).strip().lower()
     if "@" in text:
         return text
     return "".join(text.split())
+
+
+def find_by_full_name(db: Session, login_name: str) -> User | None:
+    """The one ACTIVE account whose name, written the same way, is what was
+    typed - "Ramanesh Nair" for `ramanesh`. People type their name into the
+    sign-in box; refusing that cost the Sales team their first morning.
+
+    Only an exact, unique match: two active people with the same name match
+    nobody, so a name can never sign somebody in as the wrong person.
+    """
+    if not login_name or "@" in login_name:
+        return None
+    matches = [
+        user
+        for user in db.execute(select(User).where(User.is_active.is_(True))).scalars()
+        if "".join((user.name or "").lower().split()) == login_name
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def validate_username(value: str) -> str:

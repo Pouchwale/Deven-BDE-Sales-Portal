@@ -26,7 +26,7 @@ from app.core.deps import (
 from app.core.errors import ApiError, invalid, unauthorized
 from app.core.passwords import PasswordPolicyError, validate_password
 from app.core.ratelimit import SlidingWindowLimiter
-from app.core.usernames import normalise_login
+from app.core.usernames import find_by_full_name, normalise_login
 from app.core.security import burn_password_check, csrf_token_for, verify_password
 from app.db.base import as_naive_utc, utcnow
 from app.models.org import User
@@ -124,6 +124,9 @@ def login(
         else User.username == login_name
     )
     user = db.execute(select(User).where(lookup)).scalar_one_or_none()
+    if user is None:
+        # Typed their name rather than their username ("Parag Sharma").
+        user = find_by_full_name(db, login_name)
 
     # The Super Admin's username and password live in the environment. If they
     # were typed exactly, make the account match before checking - so a fresh

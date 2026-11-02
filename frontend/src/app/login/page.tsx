@@ -202,7 +202,7 @@ export default function LoginPage() {
                 spellCheck={false}
                 autoFocus
                 required
-                placeholder="Enter your name here"
+                placeholder="Your username, e.g. parag"
                 icon={<UserRound className="size-4" />}
                 value={identifier}
                 onChange={(event) => setIdentifier(event.target.value)}

@@ -9,11 +9,10 @@
  * splash only while <html data-intro> is set; this script clears it when the
  * exit animation ends (or on a tap, which skips straight to the exit).
  *
- * The animation waits, on its plain ink field, until the wordmark images
- * and the web fonts are loaded and decoded (<html data-intro-ready>): on a
- * real network they arrive a few hundred milliseconds after first paint,
- * and starting without them made the logo pop in halfway through its rise.
- * It never waits longer than READY_CAP_MS.
+ * The wordmark itself is painted from the stylesheet (brand-inline.css),
+ * so it is there with the intro. The animation only waits, on its plain ink
+ * field, for the web fonts the caption uses (<html data-intro-ready>), and
+ * never longer than READY_CAP_MS.
  *
  * Skipped entirely for anyone who has asked for reduced motion.
  */

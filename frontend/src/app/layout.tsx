@@ -7,6 +7,7 @@ import { INTRO_INIT_SCRIPT } from "@/lib/intro";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 import "./globals.css";
+import "./brand-inline.css";
 
 export const metadata: Metadata = {
   title: {
@@ -39,9 +40,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
         {/* Decides, also before first paint, whether the intro plays. */}
         <script dangerouslySetInnerHTML={{ __html: INTRO_INIT_SCRIPT }} />
-        {/* The intro's wordmark, fetched first: it waits for these. */}
-        <link rel="preload" as="image" href="/brand/pouchwale-white-body.png" fetchPriority="high" />
-        <link rel="preload" as="image" href="/brand/pouchwale-white-tear.png" fetchPriority="high" />
       </head>
       <body className="antialiased">
         <IntroSplash />

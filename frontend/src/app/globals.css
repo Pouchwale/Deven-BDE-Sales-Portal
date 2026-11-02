@@ -611,6 +611,10 @@ html[data-intro] .pw-intro {
   display: block;
   overflow: hidden;
   pointer-events: auto;
+  /* The page underneath keeps loading and drawing while the intro runs;
+     containment keeps that work from touching the intro's own layout and
+     paint, so its frames stay smooth. */
+  contain: layout paint style;
 }
 
 .pw-intro-trail,
@@ -674,13 +678,35 @@ html[data-intro] .pw-intro {
   clip-path: inset(52.2% 0 0 0);
 }
 
+/* The wordmark is painted from the stylesheet (brand-inline.css), so it
+   is ready as soon as the intro itself can show. */
 .pw-intro-word {
   position: absolute;
   left: 0;
   width: 100%;
-  height: auto;
-  max-width: none;
+  height: 100%;
+  background: center / 100% 100% no-repeat;
   animation: pw-line-rise 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.pw-intro-word-body {
+  background-image: var(--pw-wordmark-body);
+}
+
+.pw-intro-word-tear {
+  background-image: var(--pw-wordmark-tear);
+}
+
+/* The logo on the stand-up pouch's face: x 42, y 96, 116 x 49 of the
+   pouch's 200 x 250 drawing. */
+.pw-pouch-face {
+  position: absolute;
+  left: 21%;
+  top: 38.4%;
+  width: 58%;
+  height: 19.6%;
+  background: var(--pw-pouch-face) center / 100% 100% no-repeat;
+  pointer-events: none;
 }
 
 .pw-intro-half-top .pw-intro-word {

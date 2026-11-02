@@ -27,6 +27,9 @@ function zigzag(x0: number, x1: number, y: number, depth: number, teeth: number)
 
 export function StandUpPouch({ fill }: { fill: string }) {
   return (
+    // The logo sits on the pouch as an HTML layer painted from the
+    // stylesheet (--pw-pouch-face), so it is there the moment the pouch is.
+    <span className="relative block">
     <svg viewBox="0 0 200 250" className="block h-auto w-full overflow-visible">
       <path
         d="M20 22 Q20 10 32 10 H168 Q180 10 180 22 V220 Q180 236 164 238 Q100 246 36 238 Q20 236 20 220 Z"
@@ -42,8 +45,9 @@ export function StandUpPouch({ fill }: { fill: string }) {
       <path d="M36 220 Q100 230 164 220" fill="none" stroke={INK} strokeWidth="3" strokeLinecap="round" />
       {/* a flat colour block across the face, like the cover pouch */}
       <path d="M22 168 L178 128 V220 Q178 234 164 236 Q100 244 36 236 Q22 234 22 220 Z" fill="#FFFFFF" opacity="0.18" />
-      <image href="/brand/pouchwale-white.png" x="42" y="96" width="116" height="49" />
     </svg>
+    <span className="pw-pouch-face" aria-hidden />
+    </span>
   );
 }
 

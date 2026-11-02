@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 import { POUCH_ART, Wind } from "@/components/auth/FloatingPouches";
 
 /**
@@ -60,15 +58,7 @@ const FLOCK: Flyer[] = [
 function WordmarkHalf({ half }: { half: "top" | "bottom" }) {
   return (
     <span className={`pw-intro-half pw-intro-half-${half}`}>
-      <Image
-        src="/brand/pouchwale-white-body.png"
-        alt=""
-        width={1136}
-        height={480}
-        unoptimized
-        priority
-        className="pw-intro-word"
-      />
+      <span className="pw-intro-word pw-intro-word-body" />
     </span>
   );
 }
@@ -115,15 +105,7 @@ export function IntroSplash() {
               {/* The torn strip, cut from the same artwork on the same canvas,
                   so at rest it sits exactly where the wordmark has it. */}
               <span className="pw-intro-tear">
-                <Image
-                  src="/brand/pouchwale-white-tear.png"
-                  alt=""
-                  width={1136}
-                  height={480}
-                  unoptimized
-                  priority
-                  className="pw-intro-word"
-                />
+                <span className="pw-intro-word pw-intro-word-tear" />
               </span>
             </div>
             <span className="pw-intro-rule" />

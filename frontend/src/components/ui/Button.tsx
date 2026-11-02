@@ -49,7 +49,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       // user meant, and double-posting a create is worse than a slow click.
       disabled={disabled || loading}
       className={cn(
-        "relative inline-flex select-none items-center justify-center font-bold",
+        "relative inline-flex select-none items-center justify-center whitespace-nowrap font-bold",
         "transition-[background-color,border-color,color,box-shadow,transform] duration-[140ms]",
         "disabled:pointer-events-none disabled:opacity-55",
         VARIANTS[variant],

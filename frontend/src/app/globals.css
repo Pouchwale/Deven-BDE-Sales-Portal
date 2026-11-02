@@ -528,6 +528,95 @@
   }
 }
 
+/* The same cards, up to laptop width: for a table with too many columns to
+   fit a tablet, where stacking reads better than scrolling sideways. */
+@utility table-stack-lg {
+  @media (width < 64rem) {
+    display: block;
+    min-width: 0;
+
+    & thead {
+      /* Not display:none - that removes it from the accessibility tree too.
+         Clipped instead, so a screen reader still reads the headers. */
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
+
+    & tbody {
+      display: flex;
+      flex-direction: column;
+      gap: 0.625rem;
+    }
+
+    /* Two columns of label-over-value pairs: a nine-column row reads as a
+       compact card instead of nine full-width lines, which on a 22-person
+       table was the difference between one screen per person and five
+       people per screen. */
+    & tbody tr {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 1rem;
+      row-gap: 0.5rem;
+      border: 2px solid var(--ink);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: 4px 4px 0 0 var(--stamp);
+      padding: 0.75rem 0.875rem;
+    }
+
+    & tbody td {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.125rem;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      text-align: left;
+    }
+
+    /* The header, re-emitted above its value. */
+    & tbody td[data-label]::before {
+      content: attr(data-label);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-subtle);
+    }
+
+    /* Cells that are their own headline: the name, the actions, a lone
+       message row. They take the full width of the card. */
+    & tbody td:not([data-label]),
+    & tbody td[colspan] {
+      grid-column: 1 / -1;
+      display: block;
+    }
+
+    /* Actions go full width and thumb-sized, at the foot of the card. */
+    & tbody td[data-actions] {
+      margin-top: 0.5rem;
+      padding-top: 0.625rem;
+      border-top: 1px solid var(--line);
+    }
+    & tbody td[data-actions] > * {
+      width: 100%;
+      justify-content: center;
+    }
+    /* The buttons themselves share the row and are thumb-height, rather than
+       sitting small in the middle of it. */
+    & tbody td[data-actions] :is(button, a) {
+      flex: 1 1 0;
+      justify-content: center;
+      min-height: 2.75rem;
+    }
+  }
+}
+
 /* Padding that clears the home indicator / gesture bar on a modern phone,
    and collapses to the normal value everywhere else. Used on anything
    anchored to the bottom edge: sheets, the assistant composer, dialog
@@ -1289,5 +1378,58 @@ html[data-arrive] main.page-enter {
   .pw-trail,
   .pw-air {
     display: none;
+  }
+}
+
+/* ==========================================================================
+   Tables: the action column never scrolls out of sight
+
+   A table wider than its card scrolls inside it, and the last column - the
+   buttons people came for - was the first to disappear past the right edge.
+   Wherever a table marks its action cells (td[data-actions]) that column is
+   pinned to the right edge, header included; the other columns scroll
+   beneath it. Not on phones, where tables are already stacked cards.
+   ========================================================================== */
+@media (width >= 48rem) {
+  table:not(.table-stack-lg) td[data-actions],
+  table:not(.table-stack-lg):has(td[data-actions]) thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    box-shadow: inset 2px 0 0 0 var(--line);
+  }
+
+  table:not(.table-stack-lg) td[data-actions] {
+    background: var(--surface);
+  }
+
+  table:not(.table-stack-lg) tr:hover > td[data-actions] {
+    background: var(--surface-hover);
+  }
+
+  table:not(.table-stack-lg):has(td[data-actions]) thead th:last-child {
+    background: var(--surface-2);
+  }
+}
+
+@media (width >= 64rem) {
+  table.table-stack-lg td[data-actions],
+  table.table-stack-lg:has(td[data-actions]) thead th:last-child {
+    position: sticky;
+    right: 0;
+    z-index: 1;
+    box-shadow: inset 2px 0 0 0 var(--line);
+  }
+
+  table.table-stack-lg td[data-actions] {
+    background: var(--surface);
+  }
+
+  table.table-stack-lg tr:hover > td[data-actions] {
+    background: var(--surface-hover);
+  }
+
+  table.table-stack-lg:has(td[data-actions]) thead th:last-child {
+    background: var(--surface-2);
   }
 }

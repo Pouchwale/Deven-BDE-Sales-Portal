@@ -430,15 +430,22 @@ function ReferencesInner() {
             />
           ) : (
             <>
-              <TableWrap>
-                <Table>
+              {/* Cards up to laptop width (six columns cannot fit a tablet),
+                  then a table that fits the window: long names wrap rather
+                  than pushing the action off the right edge. */}
+              <TableWrap stackBelow="lg">
+                <Table stack="lg" className="lg:min-w-0">
                   <THead>
                     <tr>
                       <TH>Account</TH>
                       <TH>Number</TH>
                       <TH>Owner</TH>
                       <TH>Reference</TH>
-                      <TH>{declinedTab ? "Declined on" : "Last asked"}</TH>
+                      {/* Mostly "—" on the asking tabs: between tablet and large
+                          laptop it gives its width to the names instead. */}
+                      <TH className={declinedTab ? undefined : "lg:max-xl:hidden"}>
+                        {declinedTab ? "Declined on" : "Last asked"}
+                      </TH>
                       <TH align="right">Action</TH>
                     </tr>
                   </THead>
@@ -452,7 +459,7 @@ function ReferencesInner() {
                           >
                             {account.subject_name}
                           </Link>
-                          <span className="mt-0.5 flex items-center gap-1.5">
+                          <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5">
                             {account.company_name ? (
                               <span className="truncate text-[11.5px] text-subtle">
                                 {account.company_name}
@@ -503,7 +510,10 @@ function ReferencesInner() {
                             ) : null}
                           </span>
                         </TD>
-                        <TD data-label={declinedTab ? "Declined on" : "Last asked"} className="whitespace-nowrap text-muted">
+                        <TD
+                          data-label={declinedTab ? "Declined on" : "Last asked"}
+                          className={cn("whitespace-nowrap text-muted", !declinedTab && "lg:max-xl:hidden")}
+                        >
                           {formatDate(account.last_reference_asked_at)}
                         </TD>
                         <TD data-actions align="right">
@@ -757,7 +767,10 @@ function ReferencesInner() {
           ) : references.data ? (
             <>
               <TableWrap>
-                <Table>
+                {/* Fits the window: long names wrap rather than pushing the
+                    action off the right edge (md:min-w-0 overrides the
+                    table's default content-width minimum). */}
+                <Table className="md:min-w-0">
                   <THead>
                     <tr>
                       <TH>Account</TH>

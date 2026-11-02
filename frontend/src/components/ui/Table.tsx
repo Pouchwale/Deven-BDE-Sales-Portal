@@ -4,17 +4,24 @@ import { cn } from "@/lib/cn";
  * Wide tables scroll inside their own container. The page body must never
  * scroll horizontally, so the overflow lives here rather than on an ancestor.
  */
-export function TableWrap({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+export function TableWrap({
+  className,
+  stackBelow = "md",
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  /** Match the Table's `stack`: "lg" when its rows become cards up to laptop width. */
+  stackBelow?: "md" | "lg";
+}) {
   return (
     <div
       className={cn(
         // min-w-0 matters: inside a flex or grid parent a scroll container
         // still resolves to its content width without it, and the page gets
         // dragged wide by a table that was supposed to scroll on its own.
-        "w-full min-w-0 overflow-x-auto md:overflow-x-auto",
-        // Below md the table stacks, so there is nothing to scroll and the
+        "w-full min-w-0 overflow-x-auto",
+        // While the table is stacked there is nothing to scroll and the
         // padding should come from the card instead.
-        "max-md:overflow-visible max-md:p-3",
+        stackBelow === "lg" ? "max-lg:overflow-visible max-lg:p-3" : "max-md:overflow-visible max-md:p-3",
         className,
       )}
       {...props}
@@ -29,8 +36,10 @@ export function Table({
 }: React.TableHTMLAttributes<HTMLTableElement> & {
   /** Become a stack of cards below `md`. On by default — seven columns on a
    *  phone is a swipe-fest. Pass `false` for a table that genuinely reads as
-   *  a grid, where the columns are the point. */
-  stack?: boolean;
+   *  a grid, where the columns are the point, or `"lg"` to stay as cards up
+   *  to laptop width when the columns cannot fit a tablet (pair it with
+   *  `<TableWrap stackBelow="lg">`). */
+  stack?: boolean | "lg";
 }) {
   return (
     <table
@@ -40,7 +49,7 @@ export function Table({
         // instead of squashing - but applied while stacked it forces the
         // card to max-content width and drags the whole page sideways. So it
         // is emitted only at the width where the table is still a table.
-        stack ? "table-stack md:min-w-max" : "min-w-max",
+        stack === "lg" ? "table-stack-lg lg:min-w-max" : stack ? "table-stack md:min-w-max" : "min-w-max",
         className,
       )}
       {...props}

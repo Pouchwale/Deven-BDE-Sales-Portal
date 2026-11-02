@@ -1104,3 +1104,53 @@ html[data-arrive] main.page-enter {
 @media (prefers-reduced-motion: reduce) {
   .pw-pouch { animation: none; }
 }
+
+/* ==========================================================================
+   Sidebar logo: PouchWale and Gujarat Printpack in turn (LogoSwitcher)
+
+   One 9s loop: each logo holds about four seconds, then slides up out of
+   the window as the other rises in from below (540ms, expo-out). The jump
+   back to the start happens out of sight, below the window.
+   ========================================================================== */
+.pw-logo-swap {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.pw-logo-swap-a,
+.pw-logo-swap-b {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  will-change: transform;
+}
+
+.pw-logo-swap-a {
+  animation: pw-swap-a 9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+/* The round mark is narrower than the wordmark: centre it in the window. */
+.pw-logo-swap-b {
+  justify-content: center;
+  animation: pw-swap-b 9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
+@keyframes pw-swap-a {
+  0%, 44% { transform: translateY(0); }
+  50% { transform: translateY(-115%); }
+  50.01%, 94% { transform: translateY(115%); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes pw-swap-b {
+  0%, 44% { transform: translateY(115%); }
+  50%, 94% { transform: translateY(0); }
+  100% { transform: translateY(-115%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-logo-swap-a { animation: none; }
+  .pw-logo-swap-b { display: none; }
+}

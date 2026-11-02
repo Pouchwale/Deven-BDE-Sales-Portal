@@ -21,7 +21,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 
-import { BrandLogo, BrandMark } from "@/components/layout/BrandLogo";
+import { LogoSwitcher } from "@/components/layout/BrandLogo";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/primitives/tooltip";
 import { cn } from "@/lib/cn";
 import { FEEDBACK_MODULE_OPEN } from "@/lib/features";
@@ -234,10 +234,10 @@ export function NavContent({
         >
           {/* The wordmark already says PouchWale; the rail gets the square mark. */}
           {collapsed ? (
-            <BrandMark size={36} />
+            <LogoSwitcher mode="mark" />
           ) : (
             <>
-              <BrandLogo height={30} />
+              <LogoSwitcher mode="wordmark" />
               <span className="min-w-0 border-l-2 border-ink pl-3">
                 <span className="block truncate font-[family-name:var(--font-display)] text-[13px] font-black uppercase leading-[1.05] text-content">
                   BDE &amp; Sales

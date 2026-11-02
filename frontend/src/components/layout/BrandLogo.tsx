@@ -48,6 +48,37 @@ export function BrandLogo({
   );
 }
 
+/**
+ * The two brands in turn: PouchWale and its parent, Gujarat Printpack. Every
+ * few seconds the logo showing slides up out of its window and the other
+ * rises in from below - the same mask movement as the intro wordmark.
+ * "wordmark" for the open sidebar, "mark" (square) for the collapsed rail.
+ * Pure CSS (".pw-logo-swap" in globals.css); just PouchWale, still, for
+ * anyone who has asked for reduced motion.
+ */
+export function LogoSwitcher({ mode }: { mode: "wordmark" | "mark" }) {
+  const wordmark = mode === "wordmark";
+  return (
+    <span
+      className={cn("pw-logo-swap shrink-0", wordmark ? "h-[36px] w-[71px]" : "size-[38px]")}
+    >
+      <span className="pw-logo-swap-a">
+        {wordmark ? <BrandLogo height={30} /> : <BrandMark size={36} />}
+      </span>
+      <span className="pw-logo-swap-b">
+        <Image
+          src="/brand/logo-96.png"
+          alt="Gujarat Printpack"
+          width={wordmark ? 34 : 36}
+          height={wordmark ? 34 : 36}
+          unoptimized
+          className="shrink-0 rounded-full"
+        />
+      </span>
+    </span>
+  );
+}
+
 /** The square mark (white wordmark on a pink field), for tight spots. */
 export function BrandMark({ size = 34, className }: { size?: number; className?: string }) {
   return (

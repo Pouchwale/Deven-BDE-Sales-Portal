@@ -593,10 +593,14 @@ class Settings(BaseSettings):
     #: the pages now, and waking a second free service would eat the hours.
     KEEPALIVE_FRONTEND_URL: str = ""
     KEEPALIVE_INTERVAL_SECONDS: int = 600
-    #: Only ping inside this local window. 18 h a day is ~558 of Render's 750
-    #: free instance-hours a month, leaving room to spare; round the clock
-    #: (~744) would leave almost none. Blank hours/days = always.
-    KEEPALIVE_ACTIVE_HOURS: str = "06:30-00:30"
+    #: Only ping inside this local window, e.g. "06:30-00:30". Blank hours/
+    #: days = always - the default since 2026-11-04: the portal stays awake
+    #: round the clock. That is at most 744 of Render's 750 free
+    #: instance-hours in a 31-day month, so no OTHER free service in the
+    #: workspace may stay awake too (the old -frontend redirect service only
+    #: wakes when someone opens its URL). Set e.g. "06:30-00:30" on Render to
+    #: go back to letting it sleep overnight.
+    KEEPALIVE_ACTIVE_HOURS: str = ""
     KEEPALIVE_ACTIVE_DAYS: str = ""
     #: Local time for the window: IST = UTC+05:30.
     KEEPALIVE_UTC_OFFSET_MINUTES: int = 330

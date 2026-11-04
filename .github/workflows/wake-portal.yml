@@ -1,19 +1,26 @@
-# Wakes the Render portal at 06:20 IST every day, before anyone signs in.
+# Keeps the Render portal awake around the clock: calls it every 10 minutes.
 #
-# Free: one short run a day (~1 minute) on a GitHub-hosted runner - well inside
-# GitHub's free Actions minutes, and GitHub never bills an account without a
-# payment method. Render's own cron jobs are paid, so this replaces one.
+# Render's free tier puts a web service to sleep after 15 minutes without
+# outside traffic. The backend also pings itself (backend/app/services/
+# keepalive.py), but a sleeping service cannot ping itself awake - this
+# outside call can, so it is the safety net after a restart or a missed ping.
 #
-# The backend serves the whole portal (pages and /api, backend/app/web.py) and
-# keeps itself awake until 00:30 IST (backend/app/services/keepalive.py). It
-# may sleep overnight, which keeps it well under Render's 750 free
-# instance-hours a month; this run wakes it for the day.
+# Free: the repository is public, and GitHub Actions minutes are free and
+# unlimited for public repositories. Render's own cron jobs are paid, so this
+# replaces one. GitHub may start a scheduled run a few minutes late under
+# load, and it pauses schedules after 60 days with no commits to the repo;
+# the "Run workflow" button (or any push) turns it back on.
 name: Wake portal
 
 on:
   schedule:
-    - cron: "50 0 * * *"   # 00:50 UTC = 06:20 IST, every day
+    - cron: "*/10 * * * *"  # every 10 minutes, day and night
   workflow_dispatch: {}     # "Run workflow" button in the Actions tab
+
+# One at a time: a slow wake-up must not pile runs on top of each other.
+concurrency:
+  group: wake-portal
+  cancel-in-progress: false
 
 permissions: {}
 

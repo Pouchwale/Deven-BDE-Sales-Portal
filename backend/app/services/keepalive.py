@@ -7,10 +7,11 @@ serves the pages as well as /api (app/web.py), so this one service IS the
 portal; this loop GETs its own public /health (RENDER_EXTERNAL_URL, set by
 Render) every KEEPALIVE_INTERVAL_SECONDS.
 
-Only inside KEEPALIVE_ACTIVE_HOURS (06:30-00:30 IST by default): ~558 of
-Render's 750 free instance-hours a month, with room to spare. Outside the
-window the service may sleep; .github/workflows/wake-portal.yml wakes it
-each morning, and the first visitor at night waits about a minute.
+Round the clock by default (KEEPALIVE_ACTIVE_HOURS blank): at most 744 of
+Render's 750 free instance-hours a month. A window such as "06:30-00:30"
+lets it sleep outside those hours instead. Either way
+.github/workflows/wake-portal.yml calls it from outside every 10 minutes,
+which also wakes it if it ever does fall asleep (a self-ping cannot).
 
 The URLs must be the public HTTPS ones. A call to localhost never reaches
 Render's routing layer, so it would not reset the idle timer; such URLs are
